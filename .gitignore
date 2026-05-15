@@ -1,0 +1,43 @@
+# Dependências
+node_modules/
+.pnp
+.pnp.js
+
+# Build
+dist/
+dist-ssr/
+build/
+*.local
+
+# Variáveis de ambiente — NUNCA commitar
+.env
+.env.*
+!.env.example
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# TypeScript
+*.tsbuildinfo
+
+# Vitest
+coverage/
+
+# Supabase
+supabase/.temp/
+supabase/.branches/
+
+# Bun
+bun.lockb
