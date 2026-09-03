@@ -1,124 +1,81 @@
-# Saúde em Sintonia
+# Saúde++
 
-Plataforma health-tech SaaS para acompanhamento de hábitos, bem-estar mental e físico, com assistente IA integrado.
+> Plataforma digital de saúde e bem-estar que combina acompanhamento de hábitos, progresso e recursos de bem-estar com um assistente baseado em Inteligência Artificial.
 
-## Stack
+## Sobre o projeto
 
-- **Frontend:** React 18 + TypeScript + Vite + Tailwind CSS + shadcn/ui
-- **Backend:** Supabase (Auth, PostgreSQL, Storage, Edge Functions)
-- **IA:** OpenAI via Supabase Edge Functions
-- **Auth:** Supabase Auth (email/senha + OAuth Google)
+O **Saúde++** nasceu de um problema simples: informações relacionadas à saúde e ao bem-estar costumam ficar espalhadas entre diferentes aplicativos e ferramentas.
 
----
+A proposta do projeto é centralizar essa experiência em uma única aplicação, permitindo que o usuário acompanhe sua rotina, hábitos e evolução enquanto interage com recursos de Inteligência Artificial.
 
-## Configuração
+Mais do que reunir funcionalidades, o projeto busca conectar essas informações para criar uma experiência mais personalizada.
 
-### Pré-requisitos
+### Principais recursos
 
-- Node.js 18+
-- Conta no [Supabase](https://supabase.com)
+- 👤 Onboarding e personalização do usuário
+- ✅ Acompanhamento de hábitos
+- 🏋️ Treinos e atividades
+- 📊 Visualização de progresso e indicadores
+- 🧠 Recursos relacionados a foco, relaxamento e bem-estar
+- 🤖 Assistente de Inteligência Artificial
+- 🎮 Gamificação
+- 👥 Recursos sociais
+- ⚙️ Perfil e preferências
+- 🌙 Tema claro e escuro
+- 📱 Interface responsiva para desktop e dispositivos móveis
 
-### Instalação
-
-```bash
-git clone <repo-url>
-cd saude-em-sintonia
-npm install
-cp .env.example .env
-# Preencha as variáveis no .env
-npm run dev
-```
-
-### Variáveis de ambiente
-
-```env
-# Supabase (obrigatório)
-VITE_SUPABASE_URL=https://<project-id>.supabase.co
-VITE_SUPABASE_ANON_KEY=<anon-key>
-
-# OpenAI (usado nas Edge Functions — não expor no frontend)
-OPENAI_API_KEY=<sua-chave>
-```
-
-> ⚠️ **NUNCA** commite o `.env` com valores reais. Use `.env.example` com placeholders.
-
-### Supabase
-
-1. Crie um projeto no Supabase
-2. Execute as migrations em `supabase/migrations/` em ordem cronológica
-3. Configure autenticação: habilite Email + Google OAuth no painel
-4. Configure SMTP para envio de e-mails de confirmação
+> **Importante:** o Saúde++ é um projeto de tecnologia voltado a bem-estar e não substitui avaliação, diagnóstico ou acompanhamento de profissionais de saúde.
 
 ---
 
-## Estrutura do Projeto
+## 🤖 Inteligência Artificial
 
-```
-src/
-├── components/
-│   ├── ui/              # shadcn/ui (não editar manualmente)
-│   ├── layout/          # AppLayout, BottomNav, AppSidebar
-│   ├── auth/            # ProtectedRoute, AuthRedirect
-│   └── features/        # Componentes por domínio de negócio
-│       ├── dashboard/
-│       ├── habits/
-│       ├── profile/
-│       ├── sounds/
-│       ├── training/
-│       ├── social/
-│       └── settings/
-├── contexts/
-│   └── AuthContext.tsx  # Estado global de autenticação
-├── hooks/               # Hooks customizados reutilizáveis
-├── lib/
-│   ├── supabase/        # Cliente + tipos gerados
-│   ├── utils/           # Helpers (cn, datas, seeds)
-│   └── validations/     # Schemas Zod
-├── pages/               # Páginas (thin layer, sem lógica de negócio)
-└── types/               # Tipos globais TypeScript
-```
+Um dos principais recursos do projeto é o **Amigo Lucas**, um assistente de Inteligência Artificial integrado à plataforma.
+
+A ideia é ir além de um chatbot isolado: o assistente pode utilizar o contexto disponível na aplicação para tornar a experiência mais personalizada, considerando informações fornecidas pelo usuário.
+
+O projeto explora a utilização de IA como parte de um produto digital, e não apenas como uma funcionalidade independente.
+
+### Objetivos do Amigo Lucas
+
+- Auxiliar o usuário na interação com a plataforma
+- Ajudar na interpretação de informações relacionadas à sua rotina
+- Oferecer orientações gerais de bem-estar
+- Utilizar contexto para gerar interações mais personalizadas
+
+### Limitações
+
+O assistente não realiza diagnósticos, não prescreve tratamentos e não substitui profissionais de saúde.
 
 ---
 
-## Scripts
+## 🏗️ Arquitetura
 
-| Comando | Descrição |
-|---|---|
-| `npm run dev` | Servidor de desenvolvimento |
-| `npm run build` | Build de produção |
-| `npm run lint` | Verifica o código com ESLint |
-| `npm test` | Executa os testes |
-| `npm run preview` | Preview do build |
+O Saúde++ foi desenvolvido com uma arquitetura baseada em **React + TypeScript**, organizada em componentes, páginas, hooks, contextos e módulos por domínio.
 
----
+A aplicação utiliza o Supabase como backend, concentrando serviços de autenticação, banco de dados, armazenamento e funções de backend.
 
-## Deploy
+### Principais responsabilidades
 
-### Vercel (recomendado)
+```text
+Frontend
+│
+├── React + TypeScript
+├── Componentes reutilizáveis
+├── Gerenciamento de estado
+├── React Query
+├── Autenticação
+└── Interface responsiva
 
-```bash
-npm run build
-# Deploy via Vercel CLI ou conecte o repositório no painel
-```
+Backend / BaaS
+│
+└── Supabase
+    ├── Authentication
+    ├── PostgreSQL
+    ├── Storage
+    └── Edge Functions
 
-Configure as variáveis de ambiente `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` no painel do Vercel.
-
----
-
-## Decisões de arquitetura
-
-- **Sem backend separado:** O Supabase serve como BaaS completo. As Edge Functions em Deno lidam com operações sensíveis (chamadas OpenAI, exclusão de dados).
-- **RLS habilitado em todas as tabelas:** Segurança de dados garantida em nível de banco.
-- **React Query para servidor:** Todo estado remoto (dados do Supabase) gerenciado com `@tanstack/react-query`.
-- **Autenticação via Supabase Auth:** Não há JWT customizado. O token é gerenciado automaticamente pelo cliente Supabase.
-- **Google OAuth via Supabase direto:** A dependência `@lovable.dev/cloud-auth-js` foi removida. OAuth é feito nativamente via `supabase.auth.signInWithOAuth`.
-
----
-
-## Melhorias futuras
-
-- [ ] Testes E2E com Playwright
-- [ ] PWA com notificações push
-- [ ] Internacionalização (i18n)
-- [ ] Onboarding guiado para novos usuários
-- [ ] Integração com wearables (Apple Health, Google Fit)
+Inteligência Artificial
+│
+└── OpenAI
+    └── Integração através das Edge Functions
