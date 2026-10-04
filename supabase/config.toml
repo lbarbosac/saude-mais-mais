@@ -21,3 +21,14 @@ verify_jwt = false
 
 [functions.enviar-lembretes-diarios]
 verify_jwt = false
+
+[auth]
+# Troque/adicione o domínio de produção quando o site estiver no ar.
+site_url = "http://localhost:8080"
+additional_redirect_urls = ["http://localhost:8080/**"]
+minimum_password_length = 8
+
+[auth.email]
+# Cadastro sem confirmação por e-mail: o SMTP padrão do Supabase envia poucos
+# e-mails por hora. Para ligar, configure um SMTP próprio antes.
+enable_confirmations = false
