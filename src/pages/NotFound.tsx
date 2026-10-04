@@ -1,24 +1,19 @@
-import { useLocation } from "react-router-dom";
-import { useEffect } from "react";
+import { Link } from "react-router-dom";
+import { Compass } from "lucide-react";
 
-const NotFound = () => {
-  const location = useLocation();
-
-  useEffect(() => {
-    console.error("404 Error: User attempted to access non-existent route:", location.pathname);
-  }, [location.pathname]);
-
+export default function NotFound() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted">
-      <div className="text-center">
-        <h1 className="mb-4 text-4xl font-bold">404</h1>
-        <p className="mb-4 text-xl text-muted-foreground">Oops! Page not found</p>
-        <a href="/" className="text-primary underline hover:text-primary/90">
-          Return to Home
-        </a>
+    <main className="flex min-h-screen items-center justify-center bg-background px-6">
+      <div className="max-w-sm text-center">
+        <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10">
+          <Compass className="h-7 w-7 text-primary" aria-hidden />
+        </div>
+        <h1 className="text-2xl font-bold text-foreground">Página não encontrada</h1>
+        <p className="mt-2 text-sm text-muted-foreground">O endereço pode ter mudado ou não existe mais.</p>
+        <Link to="/" className="btn-primary mx-auto mt-6 w-fit">
+          Voltar para o início
+        </Link>
       </div>
-    </div>
+    </main>
   );
-};
-
-export default NotFound;
+}

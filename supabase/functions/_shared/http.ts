@@ -66,7 +66,7 @@ export async function lerCorpo(req: Request): Promise<Record<string, unknown> | 
 export function limparTexto(valor: unknown, max: number): string {
   if (typeof valor !== "string") return "";
   // deno-lint-ignore no-control-regex
-  return valor.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "").trim().slice(0, max);
+  return valor.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "").trim().slice(0, max); // eslint-disable-line no-control-regex
 }
 
 export function dataISOValida(valor: unknown): string | null {

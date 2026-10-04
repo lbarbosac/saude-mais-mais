@@ -1,58 +1,41 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useCallback } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { track } from "@/lib/analytics";
 import { supabase } from "@/lib/supabase/client";
-import { callEdgeFunction } from "@/lib/supabase/functions";
 import { useAuth } from "@/contexts/AuthContext";
 
+/**
+ * Diz se o usuário ainda precisa passar pelo onboarding.
+ * needsOnboarding: null enquanto carrega.
+ */
 export function useOnboarding() {
   const { user } = useAuth();
-  const [needsOnboarding, setNeedsOnboarding] = useState<boolean | null>(null);
-  const checkedUserIdRef = useRef<string | null>(null);
+  const queryClient = useQueryClient();
+  const queryKey = ["onboarding", user?.id];
 
-  useEffect(() => {
-    if (!user) {
-      setNeedsOnboarding(null);
-      checkedUserIdRef.current = null;
-      return;
-    }
+  const { data, isError, refetch } = useQuery({
+    queryKey,
+    enabled: !!user,
+    staleTime: Infinity,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("perfil_usuario")
+        .select("onboarding_completo, nome")
+        .eq("user_id", user!.id)
+        .maybeSingle();
+      if (error) throw error;
+      return !data?.onboarding_completo || !data.nome?.trim();
+    },
+  });
 
-    // Avoid re-fetching if already checked for this user
-    if (checkedUserIdRef.current === user.id) return;
-    checkedUserIdRef.current = user.id;
-
-    let cancelled = false;
-
-    supabase
-      .from("perfil_usuario")
-      .select("onboarding_completo, nome")
-      .eq("user_id", user.id)
-      .single()
-      .then(({ data, error }) => {
-        if (cancelled) return;
-        if (error || !data) {
-          setNeedsOnboarding(true);
-          return;
-        }
-        setNeedsOnboarding(!data.onboarding_completo || !data.nome?.trim());
-      });
-
-    return () => { cancelled = true; };
-  }, [user]);
-
-  /**
-   * Chamado pelo OnboardingFlow ao finalizar.
-   * Gera hábitos automaticamente em background — não bloqueia o usuário.
-   */
   const markComplete = useCallback(() => {
-    setNeedsOnboarding(false);
-
     track("onboarding_completed");
-    callEdgeFunction("gerar-habitos").then(({ error }) => {
-      if (error) {
-        console.warn("[useOnboarding] Geração automática de hábitos falhou:", error);
-      }
-    });
-  }, []);
+    queryClient.setQueryData(queryKey, false);
+    // Hábitos foram gerados no fim do onboarding: Início e Hábitos devem buscar de novo.
+    queryClient.invalidateQueries({ queryKey: ["habitos-do-dia"] });
+    queryClient.invalidateQueries({ queryKey: ["perfil"] });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queryClient, user?.id]);
 
-  return { needsOnboarding, markComplete };
+  return { needsOnboarding: data ?? null, isError, retry: refetch, markComplete };
 }

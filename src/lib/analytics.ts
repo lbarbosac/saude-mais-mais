@@ -1,18 +1,10 @@
 /**
- * Analytics de primeira parte (first-party) — sem cookies de terceiros,
- * sem Google Analytics, sem rastreamento cross-site. Armazena eventos
- * diretamente no Supabase para conformidade com LGPD.
+ * Métricas de uso de primeira parte, gravadas no próprio Supabase.
+ * Sem cookies de terceiros e sem ferramentas externas de rastreamento.
  *
- * Eventos rastreados (anônimos por design):
- *   - page_view: qual tela foi aberta
- *   - habit_generated: usuário gerou hábitos com IA
- *   - habit_toggled: usuário marcou/desmarcou um hábito
- *   - chat_message_sent: usuário enviou mensagem ao Lucas
- *   - checkin_saved: usuário registrou humor/energia
- *   - onboarding_completed: usuário terminou o onboarding
- *
- * Os eventos NÃO incluem conteúdo das mensagens ou dados pessoais sensíveis,
- * apenas metadados de uso (tipo de evento, data/hora, versão do app).
+ * Registra só o tipo do evento e metadados simples (nunca o conteúdo de
+ * mensagens ou dados de saúde). Cada pessoa vê e pode apagar os próprios
+ * eventos (RLS), e eles somem junto com a conta.
  */
 
 import { supabase } from "@/lib/supabase/client";
@@ -27,60 +19,37 @@ export type AnalyticsEventName =
   | "sound_played"
   | "workout_generated";
 
-interface EventPayload {
-  event: AnalyticsEventName;
-  properties?: Record<string, string | number | boolean>;
+type Propriedades = Record<string, string | number | boolean>;
+
+let fila: { event_name: AnalyticsEventName; properties: Propriedades }[] = [];
+let timer: ReturnType<typeof setTimeout> | null = null;
+const INTERVALO_MS = 5000;
+
+async function enviar() {
+  timer = null;
+  if (fila.length === 0) return;
+  const lote = fila.splice(0, fila.length);
+
+  // getSession lê a sessão local, sem ir à rede.
+  const { data } = await supabase.auth.getSession();
+  const userId = data.session?.user.id;
+  if (!userId) return;
+
+  const { error } = await supabase
+    .from("analytics_eventos")
+    .insert(lote.map((e) => ({ ...e, user_id: userId, app_version: __APP_VERSION__ })));
+  if (error) console.debug("[analytics] falha ao enviar:", error.message);
 }
 
-// Fila local para processar em batch — evita 1 chamada ao DB por interação
-let eventQueue: EventPayload[] = [];
-let flushTimer: ReturnType<typeof setTimeout> | null = null;
-const FLUSH_INTERVAL = 5000; // 5 segundos
-
-function flush() {
-  if (eventQueue.length === 0) return;
-  const batch = [...eventQueue];
-  eventQueue = [];
-
-  supabase.auth.getUser().then(({ data }) => {
-    const userId = data?.user?.id ?? null;
-    const events = batch.map((e) => ({
-      user_id: userId,
-      event_name: e.event,
-      properties: e.properties ?? {},
-      app_version: "1.0.0",
-      created_at: new Date().toISOString(),
-    }));
-
-    // Fire-and-forget — analytics nunca deve bloquear a UI
-    supabase.from("analytics_eventos").insert(events).then(
-      () => {},
-      (err) => console.debug("[Analytics] flush error:", err)
-    );
-  });
+/** Registra um evento. Nunca lança erro nem bloqueia a interface. */
+export function track(evento: AnalyticsEventName, propriedades: Propriedades = {}) {
+  fila.push({ event_name: evento, properties: propriedades });
+  if (fila.length > 50) fila = fila.slice(-50);
+  if (!timer) timer = setTimeout(enviar, INTERVALO_MS);
 }
 
-function schedule() {
-  if (flushTimer) return;
-  flushTimer = setTimeout(() => {
-    flushTimer = null;
-    flush();
-  }, FLUSH_INTERVAL);
-}
-
-/**
- * Registra um evento de analytics.
- * Não lança erro, não bloqueia, não inclui dados pessoais sensíveis.
- */
-export function track(event: AnalyticsEventName, properties?: EventPayload["properties"]) {
-  eventQueue.push({ event, properties });
-  schedule();
-}
-
-// Flush ao fechar/ocultar a página (best-effort)
 if (typeof document !== "undefined") {
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") flush();
+    if (document.visibilityState === "hidden") void enviar();
   });
-  window.addEventListener("pagehide", flush);
 }

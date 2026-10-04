@@ -11,18 +11,24 @@ const sizeClasses: Record<Size, string> = {
 interface LoadingSpinnerProps {
   size?: Size;
   className?: string;
+  label?: string;
 }
 
-export function LoadingSpinner({ size = "md", className }: LoadingSpinnerProps) {
+export function LoadingSpinner({ size = "md", className, label = "Carregando" }: LoadingSpinnerProps) {
   return (
     <div
       role="status"
-      aria-label="Carregando"
-      className={cn(
-        "animate-spin rounded-full border-primary border-t-transparent",
-        sizeClasses[size],
-        className
-      )}
+      aria-label={label}
+      className={cn("animate-spin rounded-full border-primary border-t-transparent", sizeClasses[size], className)}
     />
+  );
+}
+
+/** Spinner centralizado para telas inteiras ou áreas de conteúdo. */
+export function TelaCarregando({ cheia = true }: { cheia?: boolean }) {
+  return (
+    <div className={cn("flex items-center justify-center", cheia ? "min-h-screen bg-background" : "min-h-[60vh]")}>
+      <LoadingSpinner size="md" />
+    </div>
   );
 }

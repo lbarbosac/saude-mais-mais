@@ -1,4 +1,3 @@
-import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Flame, Star, Zap, Trophy, Crown } from "lucide-react";
 import type { ConquistaEvent } from "@/hooks/useStreakConquista";

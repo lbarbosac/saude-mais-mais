@@ -1,93 +1,85 @@
 import { lazy, Suspense } from "react";
+import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
 import AppLayout from "@/components/layout/AppLayout";
-import { LoadingSpinner } from "@/components/ui/loading-spinner";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { TelaCarregando } from "@/components/ui/loading-spinner";
 import { PWAInstallBanner } from "@/components/features/pwa/PWAInstallBanner";
 import { AppConquistas } from "@/components/features/conquistas/AppConquistas";
+import Dashboard from "@/pages/Dashboard";
+import Habits from "@/pages/Habits";
+import NotFound from "@/pages/NotFound";
+import { rotas } from "@/rotas";
 
-// ── Rotas principais: importação DIRETA (sem lazy) ───────────────────────────
-// Lazy loading em rotas navegadas frequentemente causa "throw t._result" no mobile
-// quando o usuário navega antes do chunk terminar de carregar.
-// Rotas principais ficam no bundle inicial — são pequenas e compensam.
-import Dashboard     from "@/pages/Dashboard";
-import Habits        from "@/pages/Habits";
-import Sounds        from "@/pages/Sounds";
-import Treinos       from "@/pages/Treinos";
-import Progress      from "@/pages/Progress";
-import Profile       from "@/pages/Profile";
-import Friends       from "@/pages/Friends";
-import FriendProfile from "@/pages/FriendProfile";
-import Challenges    from "@/pages/Challenges";
-import Settings      from "@/pages/Settings";
-import NotFound      from "@/pages/NotFound";
-
-// ── Rotas raramente acessadas: lazy é OK aqui ────────────────────────────────
-const LoginPage           = lazy(() => import("@/pages/Login"));
-const ResetPassword       = lazy(() => import("@/pages/ResetPassword"));
-const TermosDeUso         = lazy(() => import("@/pages/TermosDeUso"));
-const PoliticaPrivacidade = lazy(() => import("@/pages/PoliticaPrivacidade"));
+// Início e Hábitos são as telas mais usadas e vão no bundle principal. As
+// demais carregam sob demanda e são pré-carregadas em segundo plano (ver
+// AppLayout), então a navegação continua instantânea.
+const Login = lazy(rotas.login);
+const ResetPassword = lazy(rotas.redefinirSenha);
+const TermosDeUso = lazy(rotas.termos);
+const PoliticaPrivacidade = lazy(rotas.privacidade);
+const Sounds = lazy(rotas.sons);
+const Treinos = lazy(rotas.treinos);
+const Progress = lazy(rotas.progresso);
+const Profile = lazy(rotas.perfil);
+const Friends = lazy(rotas.amigos);
+const FriendProfile = lazy(rotas.amigo);
+const Challenges = lazy(rotas.desafios);
+const Settings = lazy(rotas.configuracoes);
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 1000 * 60 * 2,
+      staleTime: 60_000,
       retry: 1,
       refetchOnWindowFocus: false,
     },
   },
 });
 
-function PageFallback() {
-  return (
-    <div className="flex min-h-[60vh] items-center justify-center">
-      <LoadingSpinner size="md" />
-    </div>
-  );
-}
-
 export default function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Toaster />
-        <BrowserRouter>
-          <AuthProvider>
-            <PWAInstallBanner />
-            <AppConquistas />
-            {/* Suspense apenas para as rotas lazy (login/reset/termos) */}
-            <Suspense fallback={<PageFallback />}>
-              <Routes>
-                <Route path="/login"            element={<LoginPage />} />
-                <Route path="/redefinir-senha"  element={<ResetPassword />} />
-                <Route path="/termos"           element={<TermosDeUso />} />
-                <Route path="/privacidade"      element={<PoliticaPrivacidade />} />
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <Toaster />
+          <BrowserRouter>
+            <AuthProvider>
+              <PWAInstallBanner />
+              <AppConquistas />
+              <Suspense fallback={<TelaCarregando />}>
+                <Routes>
+                  <Route path="/login" element={<Login />} />
+                  <Route path="/redefinir-senha" element={<ResetPassword />} />
+                  <Route path="/termos" element={<TermosDeUso />} />
+                  <Route path="/privacidade" element={<PoliticaPrivacidade />} />
 
-                <Route element={<ProtectedRoute />}>
-                  <Route element={<AppLayout />}>
-                    <Route path="/"              element={<Dashboard />} />
-                    <Route path="/habitos"        element={<Habits />} />
-                    <Route path="/sons"           element={<Sounds />} />
-                    <Route path="/treinos"        element={<Treinos />} />
-                    <Route path="/progresso"      element={<Progress />} />
-                    <Route path="/perfil"         element={<Profile />} />
-                    <Route path="/amigos"         element={<Friends />} />
-                    <Route path="/amigo/:userId"  element={<FriendProfile />} />
-                    <Route path="/desafios"       element={<Challenges />} />
-                    <Route path="/configuracoes"  element={<Settings />} />
+                  <Route element={<ProtectedRoute />}>
+                    <Route element={<AppLayout />}>
+                      <Route path="/" element={<Dashboard />} />
+                      <Route path="/habitos" element={<Habits />} />
+                      <Route path="/sons" element={<Sounds />} />
+                      <Route path="/treinos" element={<Treinos />} />
+                      <Route path="/progresso" element={<Progress />} />
+                      <Route path="/perfil" element={<Profile />} />
+                      <Route path="/amigos" element={<Friends />} />
+                      <Route path="/amigo/:userId" element={<FriendProfile />} />
+                      <Route path="/desafios" element={<Challenges />} />
+                      <Route path="/configuracoes" element={<Settings />} />
+                    </Route>
                   </Route>
-                </Route>
 
-                <Route path="*" element={<NotFound />} />
-              </Routes>
-            </Suspense>
-          </AuthProvider>
-        </BrowserRouter>
-      </TooltipProvider>
-    </QueryClientProvider>
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              </Suspense>
+            </AuthProvider>
+          </BrowserRouter>
+        </TooltipProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 }

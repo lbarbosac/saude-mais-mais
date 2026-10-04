@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { dataLocalISO } from "@/lib/utils/date";
 
 export type StreakMilestone = 7 | 14 | 30 | 60 | 100;
 
@@ -16,9 +17,8 @@ function isMilestone(n: number): n is StreakMilestone {
   return MILESTONES.includes(n as StreakMilestone);
 }
 
-function toDateStr(date: Date): string {
-  return date.toISOString().split("T")[0];
-}
+// Data local (não UTC): à noite no Brasil o UTC já está no dia seguinte.
+const toDateStr = dataLocalISO;
 
 /**
  * Calcula o streak atual a partir de datas únicas de check-in.
@@ -29,8 +29,9 @@ function calcStreak(dates: string[]): number {
   if (dates.length === 0) return 0;
 
   const unique = [...new Set(dates)].sort().reverse(); // mais recente primeiro
-  const today     = toDateStr(new Date());
-  const yesterday = toDateStr(new Date(Date.now() - 86_400_000));
+  const agora = new Date();
+  const today     = toDateStr(agora);
+  const yesterday = toDateStr(new Date(agora.getFullYear(), agora.getMonth(), agora.getDate() - 1));
 
   // Determina o ponto de partida: hoje ou ontem
   const start = unique[0] === today ? today : unique[0] === yesterday ? yesterday : null;
@@ -42,7 +43,7 @@ function calcStreak(dates: string[]): number {
 
   let streak = 0;
   for (let i = 0; i < unique.length; i++) {
-    const expected = toDateStr(new Date(startDate.getTime() - i * 86_400_000));
+    const expected = toDateStr(new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate() - i));
     if (unique[i] === expected) {
       streak++;
     } else {

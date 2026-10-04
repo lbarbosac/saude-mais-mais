@@ -1,3 +1,6 @@
+// Gerado a partir do schema do banco. Não edite à mão.
+// Para atualizar: npx supabase gen types typescript --project-id <ref> --schema public > src/lib/supabase/types.ts
+
 export type Json =
   | string
   | number
@@ -7,11 +10,6 @@ export type Json =
   | Json[]
 
 export type Database = {
-  // Allows to automatically instantiate createClient with right options
-  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
-  __InternalSupabase: {
-    PostgrestVersion: "14.1"
-  }
   public: {
     Tables: {
       amizades: {
@@ -20,6 +18,7 @@ export type Database = {
           created_at: string | null
           id: string
           status: string
+          updated_at: string
           user_id: string
         }
         Insert: {
@@ -27,6 +26,7 @@ export type Database = {
           created_at?: string | null
           id?: string
           status?: string
+          updated_at?: string
           user_id: string
         }
         Update: {
@@ -34,7 +34,35 @@ export type Database = {
           created_at?: string | null
           id?: string
           status?: string
+          updated_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      analytics_eventos: {
+        Row: {
+          app_version: string
+          created_at: string
+          event_name: string
+          id: string
+          properties: Json
+          user_id: string | null
+        }
+        Insert: {
+          app_version?: string
+          created_at?: string
+          event_name: string
+          id?: string
+          properties?: Json
+          user_id?: string | null
+        }
+        Update: {
+          app_version?: string
+          created_at?: string
+          event_name?: string
+          id?: string
+          properties?: Json
+          user_id?: string | null
         }
         Relationships: []
       }
@@ -72,28 +100,31 @@ export type Database = {
         Row: {
           created_at: string | null
           data: string
-          energia: string
-          humor: string
+          energia: string | null
+          humor: string | null
           id: string
           observacao: string | null
+          updated_at: string
           user_id: string
         }
         Insert: {
           created_at?: string | null
           data?: string
-          energia: string
-          humor: string
+          energia?: string | null
+          humor?: string | null
           id?: string
           observacao?: string | null
+          updated_at?: string
           user_id: string
         }
         Update: {
           created_at?: string | null
           data?: string
-          energia?: string
-          humor?: string
+          energia?: string | null
+          humor?: string | null
           id?: string
           observacao?: string | null
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
@@ -125,6 +156,33 @@ export type Database = {
           tipo?: string
           user_id?: string
           versao?: string
+        }
+        Relationships: []
+      }
+      consentimento_usuario: {
+        Row: {
+          aceito_em: string
+          id: string
+          ip_hash: string | null
+          user_agent: string | null
+          user_id: string
+          versao_termos: string
+        }
+        Insert: {
+          aceito_em?: string
+          id?: string
+          ip_hash?: string | null
+          user_agent?: string | null
+          user_id: string
+          versao_termos?: string
+        }
+        Update: {
+          aceito_em?: string
+          id?: string
+          ip_hash?: string | null
+          user_agent?: string | null
+          user_id?: string
+          versao_termos?: string
         }
         Relationships: []
       }
@@ -177,91 +235,105 @@ export type Database = {
           progresso_novo?: number
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "desafio_progresso_log_desafio_id_fkey"
+            columns: ["desafio_id"]
+            isOneToOne: false
+            referencedRelation: "desafios"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       desafios: {
         Row: {
-          confirmacao_criador: boolean | null
-          confirmacao_desafiado: boolean | null
+          confirmacao_criador: boolean
+          confirmacao_desafiado: boolean
           created_at: string | null
           criador_id: string
           data_fim: string | null
           desafiado_id: string
           descricao: string | null
-          flag_suspeito: boolean | null
+          flag_suspeito: boolean
           id: string
-          meta: number | null
+          meta: number
           motivo_flag: string | null
-          progresso_criador: number | null
-          progresso_desafiado: number | null
-          prova_criador_url: string | null
-          prova_desafiado_url: string | null
-          status: string | null
+          progresso_criador: number
+          progresso_desafiado: number
+          prova_criador_path: string | null
+          prova_desafiado_path: string | null
+          status: string
           titulo: string
+          updated_at: string
         }
         Insert: {
-          confirmacao_criador?: boolean | null
-          confirmacao_desafiado?: boolean | null
+          confirmacao_criador?: boolean
+          confirmacao_desafiado?: boolean
           created_at?: string | null
           criador_id: string
           data_fim?: string | null
           desafiado_id: string
           descricao?: string | null
-          flag_suspeito?: boolean | null
+          flag_suspeito?: boolean
           id?: string
-          meta?: number | null
+          meta?: number
           motivo_flag?: string | null
-          progresso_criador?: number | null
-          progresso_desafiado?: number | null
-          prova_criador_url?: string | null
-          prova_desafiado_url?: string | null
-          status?: string | null
+          progresso_criador?: number
+          progresso_desafiado?: number
+          prova_criador_path?: string | null
+          prova_desafiado_path?: string | null
+          status?: string
           titulo: string
+          updated_at?: string
         }
         Update: {
-          confirmacao_criador?: boolean | null
-          confirmacao_desafiado?: boolean | null
+          confirmacao_criador?: boolean
+          confirmacao_desafiado?: boolean
           created_at?: string | null
           criador_id?: string
           data_fim?: string | null
           desafiado_id?: string
           descricao?: string | null
-          flag_suspeito?: boolean | null
+          flag_suspeito?: boolean
           id?: string
-          meta?: number | null
+          meta?: number
           motivo_flag?: string | null
-          progresso_criador?: number | null
-          progresso_desafiado?: number | null
-          prova_criador_url?: string | null
-          prova_desafiado_url?: string | null
-          status?: string | null
+          progresso_criador?: number
+          progresso_desafiado?: number
+          prova_criador_path?: string | null
+          prova_desafiado_path?: string | null
+          status?: string
           titulo?: string
+          updated_at?: string
         }
         Relationships: []
       }
       habito_registro: {
         Row: {
-          concluido: boolean | null
+          concluido: boolean
           created_at: string | null
           data: string
           habito_id: string
           id: string
+          updated_at: string
           user_id: string
         }
         Insert: {
-          concluido?: boolean | null
+          concluido?: boolean
           created_at?: string | null
           data?: string
           habito_id: string
           id?: string
+          updated_at?: string
           user_id: string
         }
         Update: {
-          concluido?: boolean | null
+          concluido?: boolean
           created_at?: string | null
           data?: string
           habito_id?: string
           id?: string
+          updated_at?: string
           user_id?: string
         }
         Relationships: [
@@ -276,33 +348,39 @@ export type Database = {
       }
       habitos: {
         Row: {
-          ativo: boolean | null
-          created_at: string | null
+          ativo: boolean
+          categoria: string
+          created_at: string
           descricao: string | null
-          gerado_por_ia: boolean | null
-          icone: string | null
+          gerado_por_ia: boolean
+          icone: string
           id: string
           nome_habito: string
+          ultima_exibicao: string | null
           user_id: string
         }
         Insert: {
-          ativo?: boolean | null
-          created_at?: string | null
+          ativo?: boolean
+          categoria?: string
+          created_at?: string
           descricao?: string | null
-          gerado_por_ia?: boolean | null
-          icone?: string | null
+          gerado_por_ia?: boolean
+          icone?: string
           id?: string
           nome_habito: string
+          ultima_exibicao?: string | null
           user_id: string
         }
         Update: {
-          ativo?: boolean | null
-          created_at?: string | null
+          ativo?: boolean
+          categoria?: string
+          created_at?: string
           descricao?: string | null
-          gerado_por_ia?: boolean | null
-          icone?: string | null
+          gerado_por_ia?: boolean
+          icone?: string
           id?: string
           nome_habito?: string
+          ultima_exibicao?: string | null
           user_id?: string
         }
         Relationships: []
@@ -400,7 +478,7 @@ export type Database = {
         Row: {
           altura: number | null
           avatar_url: string | null
-          created_at: string | null
+          created_at: string
           humor_geral: string | null
           id: string
           idade: number | null
@@ -409,7 +487,7 @@ export type Database = {
           nivel_estresse: string | null
           nome: string
           objetivo: string | null
-          onboarding_completo: boolean | null
+          onboarding_completo: boolean
           peso: number | null
           profile_private: boolean
           qualidade_sono: string | null
@@ -423,13 +501,13 @@ export type Database = {
           show_streak: boolean
           sobre_voce: string | null
           tempo_livre: string | null
-          updated_at: string | null
+          updated_at: string
           user_id: string
         }
         Insert: {
           altura?: number | null
           avatar_url?: string | null
-          created_at?: string | null
+          created_at?: string
           humor_geral?: string | null
           id?: string
           idade?: number | null
@@ -438,7 +516,7 @@ export type Database = {
           nivel_estresse?: string | null
           nome?: string
           objetivo?: string | null
-          onboarding_completo?: boolean | null
+          onboarding_completo?: boolean
           peso?: number | null
           profile_private?: boolean
           qualidade_sono?: string | null
@@ -452,13 +530,13 @@ export type Database = {
           show_streak?: boolean
           sobre_voce?: string | null
           tempo_livre?: string | null
-          updated_at?: string | null
+          updated_at?: string
           user_id: string
         }
         Update: {
           altura?: number | null
           avatar_url?: string | null
-          created_at?: string | null
+          created_at?: string
           humor_geral?: string | null
           id?: string
           idade?: number | null
@@ -467,7 +545,7 @@ export type Database = {
           nivel_estresse?: string | null
           nome?: string
           objetivo?: string | null
-          onboarding_completo?: boolean | null
+          onboarding_completo?: boolean
           peso?: number | null
           profile_private?: boolean
           qualidade_sono?: string | null
@@ -481,7 +559,7 @@ export type Database = {
           show_streak?: boolean
           sobre_voce?: string | null
           tempo_livre?: string | null
-          updated_at?: string | null
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
@@ -492,12 +570,12 @@ export type Database = {
           favoritos_exercicios: string[]
           id: string
           localizacao_permitida: boolean | null
-          lucas_estilo: string | null
-          lucas_profundidade: string | null
-          lucas_sugestoes: string | null
-          lucas_tom: string | null
-          notificacoes_ativas: boolean | null
-          sons_favoritos: string[] | null
+          lucas_estilo: string
+          lucas_profundidade: string
+          lucas_sugestoes: string
+          lucas_tom: string
+          notificacoes_ativas: boolean
+          sons_favoritos: string[]
           tema: string | null
           updated_at: string | null
           user_id: string
@@ -507,12 +585,12 @@ export type Database = {
           favoritos_exercicios?: string[]
           id?: string
           localizacao_permitida?: boolean | null
-          lucas_estilo?: string | null
-          lucas_profundidade?: string | null
-          lucas_sugestoes?: string | null
-          lucas_tom?: string | null
-          notificacoes_ativas?: boolean | null
-          sons_favoritos?: string[] | null
+          lucas_estilo?: string
+          lucas_profundidade?: string
+          lucas_sugestoes?: string
+          lucas_tom?: string
+          notificacoes_ativas?: boolean
+          sons_favoritos?: string[]
           tema?: string | null
           updated_at?: string | null
           user_id: string
@@ -522,12 +600,12 @@ export type Database = {
           favoritos_exercicios?: string[]
           id?: string
           localizacao_permitida?: boolean | null
-          lucas_estilo?: string | null
-          lucas_profundidade?: string | null
-          lucas_sugestoes?: string | null
-          lucas_tom?: string | null
-          notificacoes_ativas?: boolean | null
-          sons_favoritos?: string[] | null
+          lucas_estilo?: string
+          lucas_profundidade?: string
+          lucas_sugestoes?: string
+          lucas_tom?: string
+          notificacoes_ativas?: boolean
+          sons_favoritos?: string[]
           tema?: string | null
           updated_at?: string | null
           user_id?: string
@@ -537,17 +615,53 @@ export type Database = {
       presenca_online: {
         Row: {
           online: boolean | null
-          ultimo_acesso: string | null
+          ultimo_acesso: string
           user_id: string
         }
         Insert: {
           online?: boolean | null
-          ultimo_acesso?: string | null
+          ultimo_acesso?: string
           user_id: string
         }
         Update: {
           online?: boolean | null
-          ultimo_acesso?: string | null
+          ultimo_acesso?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      push_subscriptions: {
+        Row: {
+          auth_key: string
+          created_at: string
+          endpoint: string
+          id: string
+          p256dh: string
+          reminder_hour: number
+          timezone_offset_minutes: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          auth_key: string
+          created_at?: string
+          endpoint: string
+          id?: string
+          p256dh: string
+          reminder_hour?: number
+          timezone_offset_minutes?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          auth_key?: string
+          created_at?: string
+          endpoint?: string
+          id?: string
+          p256dh?: string
+          reminder_hour?: number
+          timezone_offset_minutes?: number
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
@@ -624,6 +738,7 @@ export type Database = {
         Row: {
           cardio: string
           created_at: string | null
+          descanso_pref: number | null
           dias_semana: number
           grupo_foco: string
           id: string
@@ -638,6 +753,7 @@ export type Database = {
         Insert: {
           cardio: string
           created_at?: string | null
+          descanso_pref?: number | null
           dias_semana: number
           grupo_foco: string
           id?: string
@@ -652,6 +768,7 @@ export type Database = {
         Update: {
           cardio?: string
           created_at?: string | null
+          descanso_pref?: number | null
           dias_semana?: number
           grupo_foco?: string
           id?: string
@@ -748,12 +865,129 @@ export type Database = {
         }
         Relationships: []
       }
+      uso_ia: {
+        Row: {
+          contagem: number
+          janela_inicio: string
+          recurso: string
+          user_id: string
+        }
+        Insert: {
+          contagem?: number
+          janela_inicio?: string
+          recurso: string
+          user_id: string
+        }
+        Update: {
+          contagem?: number
+          janela_inicio?: string
+          recurso?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      anexar_prova_desafio: {
+        Args: { p_desafio: string; p_path: string }
+        Returns: undefined
+      }
+      buscar_perfis: {
+        Args: { p_termo: string }
+        Returns: {
+          avatar_url: string
+          nickname: string
+          nome: string
+          user_id: string
+        }[]
+      }
+      confirmar_desafio: { Args: { p_desafio: string }; Returns: string }
+      consumir_cota_ia: {
+        Args: {
+          p_janela_segundos: number
+          p_limite: number
+          p_recurso: string
+          p_user: string
+        }
+        Returns: boolean
+      }
+      definir_habitos_do_dia: {
+        Args: { p_data: string; p_habitos: string[] }
+        Returns: {
+          concluido: boolean
+          habito_id: string
+        }[]
+      }
+      listar_amigos: {
+        Args: never
+        Returns: {
+          avatar_url: string
+          nickname: string
+          nome: string
+          online: boolean
+          user_id: string
+        }[]
+      }
+      listar_desafios: {
+        Args: never
+        Returns: {
+          confirmacao_criador: boolean
+          confirmacao_desafiado: boolean
+          created_at: string
+          criador_id: string
+          criador_nome: string
+          desafiado_id: string
+          desafiado_nome: string
+          descricao: string
+          flag_suspeito: boolean
+          id: string
+          meta: number
+          motivo_flag: string
+          progresso_criador: number
+          progresso_desafiado: number
+          prova_criador_path: string
+          prova_desafiado_path: string
+          status: string
+          titulo: string
+        }[]
+      }
+      listar_pedidos_amizade: {
+        Args: never
+        Returns: {
+          avatar_url: string
+          created_at: string
+          id: string
+          nickname: string
+          nome: string
+          user_id: string
+        }[]
+      }
+      minha_sequencia: { Args: { p_hoje: string }; Returns: number }
+      perfil_publico: {
+        Args: { p_como_amigo?: boolean; p_user_id: string }
+        Returns: Json
+      }
+      registrar_progresso_desafio: {
+        Args: { p_desafio: string }
+        Returns: undefined
+      }
+      resumo_habitos: {
+        Args: { p_fim: string; p_inicio: string }
+        Returns: {
+          concluidos: number
+          data: string
+          restaurado: boolean
+          total: number
+        }[]
+      }
+      substituir_habitos_ia: {
+        Args: { p_habitos: Json; p_hoje: string }
+        Returns: number
+      }
+      substituir_treinos_ia: { Args: { p_treinos: Json }; Returns: number }
     }
     Enums: {
       [_ in never]: never
@@ -772,12 +1006,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -799,13 +1033,12 @@ export type Tables<
 
 export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
-    | keyof DefaultSchema["Tables"]
-    | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+    keyof DefaultSchema["Tables"] | { schema: keyof DatabaseWithoutInternals },
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -824,13 +1057,12 @@ export type TablesInsert<
 
 export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
-    | keyof DefaultSchema["Tables"]
-    | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+    keyof DefaultSchema["Tables"] | { schema: keyof DatabaseWithoutInternals },
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -849,13 +1081,12 @@ export type TablesUpdate<
 
 export type Enums<
   DefaultSchemaEnumNameOrOptions extends
-    | keyof DefaultSchema["Enums"]
-    | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+    keyof DefaultSchema["Enums"] | { schema: keyof DatabaseWithoutInternals },
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -868,11 +1099,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -886,3 +1117,4 @@ export const Constants = {
     Enums: {},
   },
 } as const
+

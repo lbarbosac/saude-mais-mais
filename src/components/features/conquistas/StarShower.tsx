@@ -55,9 +55,10 @@ export default function StarShower() {
       for (let i = 0; i < points * 2; i++) {
         const angle = (i * Math.PI) / points - Math.PI / 2;
         const radius = i % 2 === 0 ? r : inner;
-        i === 0
-          ? ctx.moveTo(cx + Math.cos(angle) * radius, cy + Math.sin(angle) * radius)
-          : ctx.lineTo(cx + Math.cos(angle) * radius, cy + Math.sin(angle) * radius);
+        const x = cx + Math.cos(angle) * radius;
+        const y = cy + Math.sin(angle) * radius;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
       }
       ctx.closePath();
       ctx.fill();

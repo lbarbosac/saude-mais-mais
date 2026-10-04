@@ -1,24 +1,24 @@
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "./types";
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+export const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim() ?? "";
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  // Não lança erro aqui — deixa o React montar para exibir feedback visual.
-  // Em dev, o console aponta exatamente o que está faltando.
-  console.error(
-    "[Supabase] Variáveis de ambiente ausentes.\n" +
-    "Crie um arquivo .env na raiz do projeto com:\n" +
-    "  VITE_SUPABASE_URL=https://<project>.supabase.co\n" +
-    "  VITE_SUPABASE_ANON_KEY=<anon-key>"
-  );
-}
+// Chave pública do projeto: a "publishable" nova (sb_publishable_...) ou a anon
+// legada. As duas são seguras no navegador porque todo acesso passa pelo RLS.
+export const supabaseKey =
+  ((import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? import.meta.env.VITE_SUPABASE_ANON_KEY) as string | undefined)?.trim() ?? "";
 
-export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: true,
+/** true quando o .env não foi preenchido; main.tsx mostra uma tela explicando. */
+export const configuracaoAusente = !supabaseUrl || !supabaseKey;
+
+export const supabase = createClient<Database>(
+  supabaseUrl || "http://localhost:54321",
+  supabaseKey || "chave-ausente",
+  {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+    },
   },
-});
+);
