@@ -9,6 +9,7 @@ interface ImportMetaEnv {
   /** Nome antigo da chave pública; continua aceito. */
   readonly VITE_SUPABASE_ANON_KEY?: string;
   readonly VITE_VAPID_PUBLIC_KEY?: string;
+  readonly VITE_CONTATO_EMAIL?: string;
 }
 
 interface ImportMeta {
