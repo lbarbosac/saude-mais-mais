@@ -1,33 +1,42 @@
-// Body Fat Calculator - US Navy method
-// https://www.fabiotakai.com.br/calculadora-de-gordura-corporal
+// Percentual de gordura pelo método da Marinha dos EUA (Hodgdon e Beckett).
+// As constantes abaixo são da versão em POLEGADAS: as medidas em cm são
+// convertidas antes. Usar cm direto superestimava o resultado (cerca de 6
+// pontos para homens e mais de 20 para mulheres).
 
 export interface BodyFatInput {
   sexo: "masculino" | "feminino";
   alturaCm: number;
   pescocoCm: number;
   cinturaCm: number;
-  quadrilCm?: number; // required for feminino
+  quadrilCm?: number; // obrigatório para feminino
 }
 
+const POLEGADA_CM = 2.54;
+
 /**
- * US Navy formula
- * Men: %BF = 86.010 * log10(waist - neck) - 70.041 * log10(height) + 36.76
- * Women: %BF = 163.205 * log10(waist + hip - neck) - 97.684 * log10(height) - 78.387
+ * Homens:   %G = 86,010 × log10(cintura − pescoço) − 70,041 × log10(altura) + 36,76
+ * Mulheres: %G = 163,205 × log10(cintura + quadril − pescoço) − 97,684 × log10(altura) − 78,387
+ * (todas as medidas em polegadas)
  */
 export function calculateBodyFat(input: BodyFatInput): number | null {
-  const { sexo, alturaCm, pescocoCm, cinturaCm, quadrilCm } = input;
-  if (!alturaCm || !pescocoCm || !cinturaCm) return null;
+  const emPolegadas = (cm: number | undefined) => (cm ? cm / POLEGADA_CM : 0);
+  const altura = emPolegadas(input.alturaCm);
+  const pescoco = emPolegadas(input.pescocoCm);
+  const cintura = emPolegadas(input.cinturaCm);
+  const quadril = emPolegadas(input.quadrilCm);
+  const { sexo } = input;
+  if (!altura || !pescoco || !cintura) return null;
 
   if (sexo === "masculino") {
-    const diff = cinturaCm - pescocoCm;
+    const diff = cintura - pescoco;
     if (diff <= 0) return null;
-    const result = 86.01 * Math.log10(diff) - 70.041 * Math.log10(alturaCm) + 36.76;
+    const result = 86.01 * Math.log10(diff) - 70.041 * Math.log10(altura) + 36.76;
     return Math.max(2, Math.min(60, Number(result.toFixed(1))));
   } else {
-    if (!quadrilCm) return null;
-    const diff = cinturaCm + quadrilCm - pescocoCm;
+    if (!quadril) return null;
+    const diff = cintura + quadril - pescoco;
     if (diff <= 0) return null;
-    const result = 163.205 * Math.log10(diff) - 97.684 * Math.log10(alturaCm) - 78.387;
+    const result = 163.205 * Math.log10(diff) - 97.684 * Math.log10(altura) - 78.387;
     return Math.max(2, Math.min(60, Number(result.toFixed(1))));
   }
 }
