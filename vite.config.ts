@@ -1,11 +1,15 @@
 import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react-swc";
-import path from "path";
+import react from "@vitejs/plugin-react";
+import path from "node:path";
 
 export default defineConfig({
+  // O dev server fica restrito a localhost de propósito: expor na rede
+  // (host 0.0.0.0) abre o servidor de desenvolvimento para qualquer máquina da rede.
   server: {
-    host: "0.0.0.0",
     port: 8080,
+  },
+  preview: {
+    port: 4173,
   },
   plugins: [react()],
   resolve: {
@@ -15,14 +19,5 @@ export default defineConfig({
   },
   build: {
     sourcemap: false,
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          vendor: ["react", "react-dom", "react-router-dom"],
-          supabase: ["@supabase/supabase-js"],
-          ui: ["framer-motion", "lucide-react"],
-        },
-      },
-    },
   },
 });
