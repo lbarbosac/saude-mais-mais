@@ -1,47 +1,53 @@
-/**
- * Retorna a data de hoje no formato ISO (YYYY-MM-DD) no horário local.
- * Evita o bug de UTC onde em UTC-3 às 23h seria "amanhã" em UTC.
- */
+// Datas como texto "AAAA-MM-DD" no horário LOCAL do aparelho.
+// Evita o erro de usar toISOString(), que está em UTC: às 21h em Brasília o
+// "hoje" em UTC já é amanhã.
+
+function formatar(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** Hoje, no horário local. */
 export function todayISO(): string {
-  const d = new Date();
-  const year  = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const day   = String(d.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return formatar(new Date());
+}
+
+/** Data local de um objeto Date. */
+export function dataLocalISO(d: Date): string {
+  return formatar(d);
+}
+
+/** Soma (ou subtrai) dias a uma data "AAAA-MM-DD". */
+export function somarDias(iso: string, dias: number): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  return formatar(new Date(y, m - 1, d + dias));
+}
+
+/** Converte "AAAA-MM-DD" em Date à meia-noite local (sem deslocamento de fuso). */
+export function deISO(iso: string): Date {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d);
 }
 
 /**
- * Gera um número de seed determinístico a partir de uma data e userId.
- * Usado para selecionar o subset de hábitos do dia de forma consistente
- * entre Dashboard, Habits e Progress.
+ * Semente determinística a partir de data e usuário.
+ * FNV-1a com mistura final: mudar um único caractere (o dia) embaralha o
+ * resultado inteiro. O hash linear anterior só deslocava todos os valores pela
+ * mesma constante, e a ordem dos empates ficava igual todo dia.
  */
 export function getDailySeed(dateStr: string, userId: string): number {
-  const raw = dateStr + userId;
-  let hash = 0;
+  const raw = `${dateStr}|${userId}`;
+  let hash = 0x811c9dc5;
   for (let i = 0; i < raw.length; i++) {
-    hash = ((hash << 5) - hash + raw.charCodeAt(i)) | 0;
+    hash ^= raw.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
   }
-  return Math.abs(hash);
+  hash ^= hash >>> 16;
+  hash = Math.imul(hash, 0x85ebca6b);
+  hash ^= hash >>> 13;
+  return hash >>> 0;
 }
 
-/**
- * Embaralha um array deterministicamente usando um seed.
- * Algoritmo: LCG (Linear Congruential Generator) + Fisher-Yates.
- */
-export function seededShuffle<T>(arr: T[], seed: number): T[] {
-  const result = [...arr];
-  let s = seed;
-  for (let i = result.length - 1; i > 0; i--) {
-    s = (s * 1103515245 + 12345) & 0x7fffffff;
-    const j = s % (i + 1);
-    [result[i], result[j]] = [result[j], result[i]];
-  }
-  return result;
-}
-
-/**
- * Retorna a saudação correta baseada no horário atual.
- */
+/** Saudação conforme a hora local. */
 export function getTimeGreeting(): string {
   const hour = new Date().getHours();
   if (hour < 12) return "Bom dia";

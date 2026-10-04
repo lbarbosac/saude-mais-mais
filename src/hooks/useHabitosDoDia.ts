@@ -1,170 +1,145 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useCallback } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { track } from "@/lib/analytics";
 import { supabase } from "@/lib/supabase/client";
-import { todayISO } from "@/lib/utils/date";
-import { selecionarHabitosDodia, type HabitoParaSelecao, type HabitoSelecionado } from "@/lib/utils/habitSelection";
+import { somarDias, todayISO } from "@/lib/utils/date";
+import { selecionarHabitosDoDia } from "@/lib/utils/habitSelection";
 import { toast } from "@/hooks/use-toast";
 
-/**
- * Chave de query ÚNICA para os hábitos do dia.
- * Tanto Dashboard quanto Habits usam exatamente esta chave — garante que
- * as duas telas leem do MESMO cache e nunca mostram listas diferentes.
- */
-export function habitosQueryKey(userId: string | undefined, today: string) {
-  return ["habitos-do-dia", userId, today] as const;
+export interface HabitoDoDia {
+  id: string;
+  nome_habito: string;
+  descricao: string | null;
+  icone: string;
+  categoria: string;
+  concluido: boolean;
 }
 
-function ninetyDaysAgoISO(): string {
-  const d = new Date(Date.now() - 90 * 86_400_000);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
+/** Chave única: Início e Hábitos compartilham o mesmo cache. */
+export const habitosQueryKey = (userId: string | undefined, hoje: string) => ["habitos-do-dia", userId, hoje] as const;
 
 /**
- * Busca, calcula histórico e seleciona os hábitos do dia.
- * Esta é a ÚNICA implementação no projeto — Dashboard e Habits chamam esta
- * mesma função via o mesmo hook, eliminando a divergência de cálculo de peso
- * que antes fazia as duas telas mostrarem hábitos diferentes no mesmo dia.
+ * Lê a lista de hoje. Se ainda não existir, sugere uma (habitSelection.ts) e a
+ * grava com definir_habitos_do_dia, que devolve a lista definitiva — mesmo que
+ * outra aba ou aparelho tenha gravado antes.
  */
-async function fetchHabitosDoDia(userId: string, today: string): Promise<HabitoSelecionado[]> {
-  const [habitosRes, registrosHojeRes, historicoRes] = await Promise.all([
+async function buscarHabitosDoDia(userId: string, hoje: string): Promise<HabitoDoDia[]> {
+  const [habitosRes, historicoRes] = await Promise.all([
     supabase
       .from("habitos")
-      .select("id, nome_habito, descricao, icone")
+      .select("id, nome_habito, descricao, icone, categoria")
       .eq("user_id", userId)
       .eq("ativo", true)
       .order("created_at"),
-
     supabase
       .from("habito_registro")
-      .select("habito_id, concluido")
+      .select("habito_id, data, concluido")
       .eq("user_id", userId)
-      .eq("data", today),
-
-    supabase
-      .from("habito_registro")
-      .select("habito_id, concluido")
-      .eq("user_id", userId)
-      .gte("data", ninetyDaysAgoISO()),
+      .gte("data", somarDias(hoje, -90))
+      .lte("data", hoje),
   ]);
+  if (habitosRes.error) throw habitosRes.error;
+  if (historicoRes.error) throw historicoRes.error;
 
-  const allHabitos = habitosRes.data ?? [];
-  if (allHabitos.length === 0) return [];
+  const habitos = habitosRes.data;
+  if (habitos.length === 0) return [];
 
-  const hojeMap = new Map(
-    (registrosHojeRes.data ?? []).map((r) => [r.habito_id, r.concluido])
-  );
+  const ativos = new Map(habitos.map((h) => [h.id, h]));
+  let doDia = historicoRes.data
+    .filter((r) => r.data === hoje && ativos.has(r.habito_id))
+    .map((r) => ({ habito_id: r.habito_id, concluido: r.concluido }));
 
-  const historicoMap = new Map<string, { exibido: number; concluido: number }>();
-  for (const r of historicoRes.data ?? []) {
-    const entry = historicoMap.get(r.habito_id) ?? { exibido: 0, concluido: 0 };
-    entry.exibido++;
-    if (r.concluido) entry.concluido++;
-    historicoMap.set(r.habito_id, entry);
-  }
+  if (doDia.length === 0) {
+    const estatisticas = new Map<string, { exibido: number; concluido: number; ultima: string | null }>();
+    for (const r of historicoRes.data) {
+      if (r.data >= hoje) continue;
+      const e = estatisticas.get(r.habito_id) ?? { exibido: 0, concluido: 0, ultima: null };
+      e.exibido++;
+      if (r.concluido) e.concluido++;
+      if (!e.ultima || r.data > e.ultima) e.ultima = r.data;
+      estatisticas.set(r.habito_id, e);
+    }
 
-  const habitosParaSelecao: HabitoParaSelecao[] = allHabitos.map((h) => {
-    const hist = historicoMap.get(h.id) ?? { exibido: 0, concluido: 0 };
-    const hAny = h as Record<string, unknown>;
-    return {
-      id:              h.id,
-      nome_habito:     h.nome_habito,
-      descricao:       h.descricao ?? null,
-      icone:           h.icone,
-      categoria:       (typeof hAny.categoria === "string" ? hAny.categoria : null) ?? "geral",
-      ultima_exibicao: (typeof hAny.ultima_exibicao === "string" ? hAny.ultima_exibicao : null) ?? null,
-      concluido_hoje:  hojeMap.get(h.id) ?? false,
-      vezes_concluido: hist.concluido,
-      vezes_exibido:   hist.exibido,
-    };
-  });
+    const sugestao = selecionarHabitosDoDia(
+      habitos.map((h) => {
+        const e = estatisticas.get(h.id);
+        return { id: h.id, categoria: h.categoria, ultima_exibicao: e?.ultima ?? null, vezes_exibido: e?.exibido ?? 0, vezes_concluido: e?.concluido ?? 0 };
+      }),
+      userId,
+      hoje,
+    );
 
-  const selecionados = selecionarHabitosDodia(habitosParaSelecao, userId, today);
-
-  // Marca ultima_exibicao em background (fire-and-forget)
-  const idsParaAtualizar = selecionados
-    .filter((h) => {
-      const original = habitosParaSelecao.find((o) => o.id === h.id);
-      return original?.ultima_exibicao !== today;
-    })
-    .map((h) => h.id);
-
-  if (idsParaAtualizar.length > 0) {
-    supabase
-      .from("habitos")
-      .update({ ultima_exibicao: today })
-      .in("id", idsParaAtualizar)
-      .then(() => {}, () => {}); // fire-and-forget, sem unhandled rejection
-  }
-
-  return selecionados;
-}
-
-async function toggleHabitoStatus(habito: HabitoSelecionado, userId: string): Promise<void> {
-  const today = todayISO();
-  const newState = !habito.concluido_hoje;
-
-  const { data: existing } = await supabase
-    .from("habito_registro")
-    .select("id")
-    .eq("habito_id", habito.id)
-    .eq("data", today)
-    .maybeSingle();
-
-  if (existing) {
-    await supabase
-      .from("habito_registro")
-      .update({ concluido: newState })
-      .eq("id", existing.id);
-  } else {
-    await supabase.from("habito_registro").insert({
-      habito_id: habito.id,
-      user_id:   userId,
-      concluido: newState,
-      data:      today,
+    const { data, error } = await supabase.rpc("definir_habitos_do_dia", {
+      p_data: hoje,
+      p_habitos: sugestao.map((h) => h.id),
     });
+    if (error) throw error;
+    doDia = data ?? [];
   }
+
+  const ordem = new Map(habitos.map((h, i) => [h.id, i]));
+  return doDia
+    .filter((r) => ativos.has(r.habito_id))
+    .sort((a, b) => ordem.get(a.habito_id)! - ordem.get(b.habito_id)!)
+    .map((r) => ({ ...ativos.get(r.habito_id)!, concluido: r.concluido }));
 }
 
-/**
- * Hook único para os hábitos do dia — usado por Dashboard.tsx e Habits.tsx.
- * Como ambos consomem a MESMA queryKey, qualquer toggle feito em uma tela
- * atualiza instantaneamente a outra via cache do React Query, sem necessidade
- * de invalidação manual entre páginas.
- */
+/** Hábitos do dia + ação de marcar/desmarcar, usados por Início e Hábitos. */
 export function useHabitosDoDia(userId: string | undefined) {
   const queryClient = useQueryClient();
-  const today = todayISO();
-  const queryKey = habitosQueryKey(userId, today);
+  const hoje = todayISO();
+  const queryKey = habitosQueryKey(userId, hoje);
 
   const query = useQuery({
     queryKey,
-    queryFn: () => fetchHabitosDoDia(userId!, today),
+    queryFn: () => buscarHabitosDoDia(userId!, hoje),
     enabled: !!userId,
-    staleTime: 1000 * 60 * 10,
-    refetchOnMount: "always",
-    refetchOnWindowFocus: false,
+    staleTime: 5 * 60_000,
   });
 
-  const toggleMutation = useMutation({
-    mutationFn: (h: HabitoSelecionado) => { track("habit_toggled", { concluido: !h.concluido_hoje }); return toggleHabitoStatus(h, userId!); },
-    onMutate: async (habito) => {
-      await queryClient.cancelQueries({ queryKey });
-      const snapshot = queryClient.getQueryData<HabitoSelecionado[]>(queryKey);
-      queryClient.setQueryData<HabitoSelecionado[]>(queryKey, (prev = []) =>
-        prev.map((h) => (h.id === habito.id ? { ...h, concluido_hoje: !h.concluido_hoje } : h))
-      );
-      return { snapshot };
+  const mutacao = useMutation({
+    // Toques seguidos são enviados em ordem: sem isso, uma resposta atrasada
+    // podia sobrescrever o último estado escolhido.
+    scope: { id: "alternar-habito" },
+    mutationFn: async ({ id, concluido }: { id: string; concluido: boolean }) => {
+      const { error } = await supabase
+        .from("habito_registro")
+        .upsert({ habito_id: id, user_id: userId!, data: hoje, concluido }, { onConflict: "habito_id,data" });
+      if (error) throw error;
     },
-    onError: (_err, _h, ctx) => {
-      queryClient.setQueryData(queryKey, ctx?.snapshot);
-      toast({ title: "Erro ao atualizar hábito", variant: "destructive" });
+    onMutate: async ({ id, concluido }) => {
+      await queryClient.cancelQueries({ queryKey });
+      const anterior = queryClient.getQueryData<HabitoDoDia[]>(queryKey);
+      queryClient.setQueryData<HabitoDoDia[]>(queryKey, (lista = []) =>
+        lista.map((h) => (h.id === id ? { ...h, concluido } : h)),
+      );
+      return { anterior };
+    },
+    onError: (_erro, _vars, contexto) => {
+      queryClient.setQueryData(queryKey, contexto?.anterior);
+      toast({ title: "Não foi possível salvar", description: "Verifique sua conexão e tente de novo.", variant: "destructive" });
+    },
+    onSuccess: (_d, { concluido }) => {
+      track("habit_toggled", { concluido });
+      queryClient.invalidateQueries({ queryKey: ["progresso"] });
     },
   });
+
+  /** Inverte o estado lendo o cache no momento do toque (não o valor da renderização). */
+  const alternar = useCallback(
+    (id: string) => {
+      const atual = queryClient.getQueryData<HabitoDoDia[]>(queryKey)?.find((h) => h.id === id);
+      if (atual) mutacao.mutate({ id, concluido: !atual.concluido });
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [queryClient, userId, hoje, mutacao.mutate],
+  );
 
   return {
     habitos: query.data ?? [],
     isLoading: query.isLoading,
-    toggleMutation,
-    queryKey,
+    isError: query.isError,
+    recarregar: query.refetch,
+    alternar,
   };
 }

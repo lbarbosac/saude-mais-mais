@@ -2,14 +2,16 @@ import { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Heart, Sparkles, Target, Brain, Activity,
-  ArrowRight, Check, Loader2, Sun, Moon, Zap,
+  ArrowRight, Check, Loader2, Moon,
   Dumbbell, Leaf, BatteryCharging, Sofa, PersonStanding, TrendingUp,
   Smile, Meh, Frown, CloudMoon, CloudLightning,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
+import { callEdgeFunction } from "@/lib/supabase/functions";
 import { useAuth } from "@/contexts/AuthContext";
+import { toast } from "@/hooks/use-toast";
+import { todayISO } from "@/lib/utils/date";
 
-interface StepOption { value: string; label: string; Icon: React.ElementType; }
 interface OnboardingProps {
   onComplete: () => void;
 }
@@ -125,17 +127,16 @@ export function OnboardingFlow({ onComplete }: OnboardingProps) {
   };
 
   const handleFinish = async () => {
-    if (!user) return;
+    if (!user || saving) return;
     setSaving(true);
 
-    // upsert em vez de update — protege contra race condition onde a linha
-    // do perfil_usuario ainda não foi criada pelo trigger do banco
+    // upsert: protege do caso raro em que o gatilho do banco ainda não criou a linha
     const { error } = await supabase
       .from("perfil_usuario")
       .upsert(
         {
           user_id: user.id,
-          nome: data.nome?.trim(),
+          nome: data.nome?.trim().slice(0, 80),
           objetivo: data.objetivo,
           nivel_atividade: data.nivel_atividade,
           nivel_estresse: data.nivel_estresse,
@@ -145,15 +146,25 @@ export function OnboardingFlow({ onComplete }: OnboardingProps) {
         { onConflict: "user_id" }
       );
 
-    setSaving(false);
-
     if (error) {
-      console.error("Onboarding save error:", error);
-      // Não bloqueia o usuário mesmo com erro — ele pode completar o perfil depois
+      setSaving(false);
+      toast({
+        title: "Não foi possível salvar suas respostas",
+        description: "Verifique sua conexão e tente de novo.",
+        variant: "destructive",
+      });
+      return;
     }
 
     setDone(true);
-    setTimeout(onComplete, 2200);
+    // Gera os hábitos enquanto a tela de boas-vindas aparece. Se a IA falhar,
+    // o servidor grava uma lista padrão; se nem isso der certo, a tela de
+    // Hábitos oferece gerar de novo.
+    await Promise.all([
+      callEdgeFunction("gerar-habitos", { body: { hoje: todayISO() }, timeoutMs: 45_000 }),
+      new Promise((r) => setTimeout(r, 2200)),
+    ]);
+    onComplete();
   };
 
   // ── Success screen ───────────────────────────────────────────────────────
@@ -187,7 +198,7 @@ export function OnboardingFlow({ onComplete }: OnboardingProps) {
           transition={{ delay: 0.5 }}
           className="mt-3 text-center text-muted-foreground"
         >
-          Seus hábitos personalizados estão sendo criados ✨
+          Estamos preparando seus hábitos personalizados.
         </motion.p>
         <motion.div
           initial={{ scaleX: 0 }}
@@ -217,7 +228,10 @@ export function OnboardingFlow({ onComplete }: OnboardingProps) {
         {/* Step counter */}
         <div className="mb-8 flex items-center justify-between">
           <button
+            type="button"
             onClick={() => step > 0 && go(-1)}
+            tabIndex={step === 0 ? -1 : 0}
+            aria-hidden={step === 0}
             className={[
               "text-sm text-muted-foreground transition-opacity",
               step === 0 ? "pointer-events-none opacity-0" : "opacity-100",
@@ -260,10 +274,14 @@ export function OnboardingFlow({ onComplete }: OnboardingProps) {
                 value={(data[current.field] as string) ?? ""}
                 onChange={(e) => handleSelect(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && canProceed)
-                    isLast ? handleFinish() : go(1);
+                  if (e.key !== "Enter" || !canProceed) return;
+                  if (isLast) handleFinish();
+                  else go(1);
                 }}
                 placeholder={current.placeholder}
+                aria-label={current.title}
+                maxLength={80}
+                autoComplete="given-name"
                 className="input-modern text-lg py-4"
               />
             ) : (
@@ -273,11 +291,13 @@ export function OnboardingFlow({ onComplete }: OnboardingProps) {
                   return (
                     <button
                       key={opt.value}
+                      type="button"
+                      aria-pressed={selected}
                       onClick={() => handleSelect(opt.value)}
                       className={[
                         "relative flex flex-col items-start gap-1.5 rounded-2xl border-2 p-4 text-left transition-all",
                         selected
-                          ? "border-primary bg-primary/8 shadow-soft"
+                          ? "border-primary bg-primary/10 shadow-soft"
                           : "border-border bg-card hover:border-primary/30",
                       ].join(" ")}
                     >

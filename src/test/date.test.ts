@@ -1,42 +1,32 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { todayISO, getDailySeed } from "@/lib/utils/date";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { dataLocalISO, deISO, getDailySeed, somarDias, todayISO } from "@/lib/utils/date";
 
-describe("todayISO", () => {
-  it("retorna data no formato YYYY-MM-DD", () => {
-    const result = todayISO();
-    expect(result).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+afterEach(() => vi.useRealTimers());
+
+describe("datas locais", () => {
+  it("todayISO usa a data local, não a UTC", () => {
+    // 23h30 de 3/out no horário local: em UTC-3 já seria 4/out.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 9, 3, 23, 30));
+    expect(todayISO()).toBe("2026-10-03");
   });
 
-  it("usa horário LOCAL, não UTC", () => {
-    // Simula meia-noite UTC (que é 21h no horário de Brasília, ainda dia anterior)
-    // todayISO() deve retornar a data LOCAL, não a data UTC
-    const result = todayISO();
-    const localDate = new Date();
-    const expected = `${localDate.getFullYear()}-${String(localDate.getMonth() + 1).padStart(2, "0")}-${String(localDate.getDate()).padStart(2, "0")}`;
-    expect(result).toBe(expected);
+  it("somarDias atravessa meses e anos", () => {
+    expect(somarDias("2026-10-31", 1)).toBe("2026-11-01");
+    expect(somarDias("2026-01-01", -1)).toBe("2025-12-31");
+    expect(somarDias("2028-02-28", 1)).toBe("2028-02-29");
+  });
+
+  it("deISO e dataLocalISO são inversos", () => {
+    expect(dataLocalISO(deISO("2026-03-08"))).toBe("2026-03-08");
   });
 });
 
 describe("getDailySeed", () => {
-  it("retorna número não-negativo", () => {
-    expect(getDailySeed("2026-06-10", "user-abc")).toBeGreaterThanOrEqual(0);
-  });
-
-  it("é determinístico: mesma entrada → mesmo seed", () => {
-    const s1 = getDailySeed("2026-06-10", "user-abc");
-    const s2 = getDailySeed("2026-06-10", "user-abc");
-    expect(s1).toBe(s2);
-  });
-
-  it("retorna seeds DIFERENTES para datas diferentes", () => {
-    const s1 = getDailySeed("2026-06-10", "user-abc");
-    const s2 = getDailySeed("2026-06-11", "user-abc");
-    expect(s1).not.toBe(s2);
-  });
-
-  it("retorna seeds DIFERENTES para usuários diferentes", () => {
-    const s1 = getDailySeed("2026-06-10", "user-abc");
-    const s2 = getDailySeed("2026-06-10", "user-xyz");
-    expect(s1).not.toBe(s2);
+  it("é determinístico e varia por dia e usuário", () => {
+    expect(getDailySeed("2026-06-10", "a")).toBe(getDailySeed("2026-06-10", "a"));
+    expect(getDailySeed("2026-06-10", "a")).not.toBe(getDailySeed("2026-06-11", "a"));
+    expect(getDailySeed("2026-06-10", "a")).not.toBe(getDailySeed("2026-06-10", "b"));
+    expect(getDailySeed("2026-06-10", "a")).toBeGreaterThanOrEqual(0);
   });
 });
