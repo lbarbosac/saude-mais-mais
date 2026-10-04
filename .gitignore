@@ -41,3 +41,6 @@ supabase/.branches/
 
 # Bun
 bun.lockb
+
+# Vercel
+.vercel/
