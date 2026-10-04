@@ -50,13 +50,15 @@ const Challenges = () => {
   const fileRefs = useRef<Map<string, HTMLInputElement>>(new Map());
 
   useEffect(() => {
-    if (user) {
-      loadDesafios();
-      loadAmigos();
-    }
+    if (!user) return;
+    let cancelled = false;
+    loadDesafios(cancelled);
+    loadAmigos(cancelled);
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
-  const loadDesafios = async () => {
+  const loadDesafios = async (cancelled = false) => {
     setLoading(true);
     const { data } = await supabase
       .from("desafios")
@@ -72,7 +74,7 @@ const Challenges = () => {
         .in("user_id", userIds);
 
       const nameMap = new Map((profiles || []).map((p) => [p.user_id, p.nome]));
-      setDesafios(data.map((d: any) => ({
+      setDesafios(data.map((d: Record<string, unknown>) => ({
         ...d,
         criador_nome: nameMap.get(d.criador_id) || "Usuario",
         desafiado_nome: nameMap.get(d.desafiado_id) || "Usuario",
@@ -83,7 +85,7 @@ const Challenges = () => {
     setLoading(false);
   };
 
-  const loadAmigos = async () => {
+  const loadAmigos = async (cancelled = false) => {
     const { data: friendships } = await supabase
       .from("amizades")
       .select("user_id, amigo_id")
@@ -148,7 +150,7 @@ const Challenges = () => {
   const confirmar = async (desafio: Desafio, isCriador: boolean) => {
     const field = isCriador ? "confirmacao_criador" : "confirmacao_desafiado";
     const otherConfirmed = isCriador ? desafio.confirmacao_desafiado : desafio.confirmacao_criador;
-    const updates: any = { [field]: true };
+    const updates: Record<string, boolean> = { [field]: true };
     if (otherConfirmed) updates.status = "concluido";
     await supabase.from("desafios").update(updates).eq("id", desafio.id);
     toast({ title: otherConfirmed ? "Desafio confirmado por ambos!" : "Sua confirmação registrada. Aguardando o outro." });

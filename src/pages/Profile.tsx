@@ -87,8 +87,25 @@ const Profile = () => {
   const uploadAvatar = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    // Validate file type
+    const validTypes = ["image/jpeg", "image/png", "image/webp"];
+    if (!validTypes.includes(file.type)) {
+      toast({ title: "Formato inválido. Use JPEG, PNG ou WebP.", variant: "destructive" });
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast({ title: "Arquivo muito grande. Máximo 5 MB.", variant: "destructive" });
+      return;
+    }
+
     setUploading(true);
-    const path = `${user!.id}/${Date.now()}.${file.name.split('.').pop()}`;
+    // Nome fixo por usuário (não timestamp) — evita acúmulo de arquivos antigos.
+    // upsert:true substitui o arquivo existente sem criar duplicatas no bucket.
+    const ext = file.name.split(".").pop()?.toLowerCase() ?? "jpg";
+    const path = `${user!.id}/avatar.${ext}`;
     const { error: upError } = await supabase.storage.from("avatars").upload(path, file, { upsert: true });
     if (upError) {
       toast({ title: "Erro ao enviar foto", variant: "destructive" });
@@ -103,14 +120,14 @@ const Profile = () => {
 
   const SelectField = ({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: { value: string; label: string }[] }) => (
     <div className="flex flex-col gap-1.5">
-      <label className="text-xs font-medium text-muted-foreground">{label}</label>
+      <label className="label-modern">{label}</label>
       {editing ? (
-        <select value={value} onChange={(e) => onChange(e.target.value)} className="rounded-xl border border-border bg-card px-3 py-2.5 text-sm outline-none focus:border-primary">
+        <select value={value} onChange={(e) => onChange(e.target.value)} className="input-modern">
           <option value="">Selecione</option>
           {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
       ) : (
-        <p className="rounded-xl bg-muted px-4 py-3 text-sm font-medium text-foreground">{options.find((o) => o.value === value)?.label || "Nao informado"}</p>
+        <p className="rounded-xl bg-muted px-4 py-3 text-sm font-medium text-foreground">{options.find((o) => o.value === value)?.label || "Não informado"}</p>
       )}
     </div>
   );
@@ -175,38 +192,38 @@ const Profile = () => {
       <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
         <div className="mb-4 flex items-center gap-2">
           <Activity className="h-4 w-4 text-primary" />
-          <p className="text-sm font-semibold text-foreground">Dados fisicos</p>
+          <p className="label-modern">Dados físicos</p>
         </div>
         <div className="flex flex-col gap-3">
           {editing ? (
             <>
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">Idade</label>
-                  <input type="number" value={perfil.idade || ""} onChange={(e) => setPerfil((p) => ({ ...p, idade: Number(e.target.value) || null }))} className="rounded-xl border border-border bg-card px-3 py-2.5 text-sm outline-none focus:border-primary" />
+                  <label className="label-modern">Idade</label>
+                  <input type="number" value={perfil.idade || ""} onChange={(e) => setPerfil((p) => ({ ...p, idade: Number(e.target.value) || null }))} className="input-modern" />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">Peso (kg)</label>
-                  <input type="number" step="0.1" value={perfil.peso || ""} onChange={(e) => setPerfil((p) => ({ ...p, peso: Number(e.target.value) || null }))} className="rounded-xl border border-border bg-card px-3 py-2.5 text-sm outline-none focus:border-primary" />
+                  <label className="label-modern">Peso (kg)</label>
+                  <input type="number" step="0.1" value={perfil.peso || ""} onChange={(e) => setPerfil((p) => ({ ...p, peso: Number(e.target.value) || null }))} className="input-modern" />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">Altura (m)</label>
-                  <input type="number" step="0.01" value={perfil.altura || ""} onChange={(e) => setPerfil((p) => ({ ...p, altura: Number(e.target.value) || null }))} className="rounded-xl border border-border bg-card px-3 py-2.5 text-sm outline-none focus:border-primary" />
+                  <label className="label-modern">Altura (m)</label>
+                  <input type="number" step="0.01" value={perfil.altura || ""} onChange={(e) => setPerfil((p) => ({ ...p, altura: Number(e.target.value) || null }))} className="input-modern" />
                 </div>
-                <SelectField label="Sexo" value={perfil.sexo} onChange={(v) => setPerfil((p) => ({ ...p, sexo: v }))} options={[{ value: "masculino", label: "Masculino" }, { value: "feminino", label: "Feminino" }, { value: "outro", label: "Outro" }, { value: "prefiro_nao_dizer", label: "Prefiro nao dizer" }]} />
+                <SelectField label="Sexo" value={perfil.sexo} onChange={(v) => setPerfil((p) => ({ ...p, sexo: v }))} options={[{ value: "masculino", label: "Masculino" }, { value: "feminino", label: "Feminino" }, { value: "outro", label: "Outro" }, { value: "prefiro_nao_dizer", label: "Prefiro não dizer" }]} />
               </div>
-              <SelectField label="Nivel de atividade" value={perfil.nivel_atividade} onChange={(v) => setPerfil((p) => ({ ...p, nivel_atividade: v }))} options={[{ value: "sedentario", label: "Sedentario" }, { value: "leve", label: "Leve" }, { value: "moderado", label: "Moderado" }, { value: "intenso", label: "Intenso" }]} />
+              <SelectField label="Nível de atividade" value={perfil.nivel_atividade} onChange={(v) => setPerfil((p) => ({ ...p, nivel_atividade: v }))} options={[{ value: "sedentario", label: "Sedentário" }, { value: "leve", label: "Leve" }, { value: "moderado", label: "Moderado" }, { value: "intenso", label: "Intenso" }]} />
             </>
           ) : (
             <>
               {[
-                { label: "Idade", value: perfil.idade ? `${perfil.idade} anos` : "Nao informado" },
-                { label: "Peso", value: perfil.peso ? `${perfil.peso} kg` : "Nao informado" },
-                { label: "Altura", value: perfil.altura ? `${perfil.altura} m` : "Nao informado" },
-                { label: "Sexo", value: perfil.sexo || "Nao informado" },
-                { label: "Atividade fisica", value: perfil.nivel_atividade || "Nao informado" },
+                { label: "Idade", value: perfil.idade ? `${perfil.idade} anos` : "Não informado" },
+                { label: "Peso", value: perfil.peso ? `${perfil.peso} kg` : "Não informado" },
+                { label: "Altura", value: perfil.altura ? `${perfil.altura} m` : "Não informado" },
+                { label: "Sexo", value: perfil.sexo || "Não informado" },
+                { label: "Atividade física", value: perfil.nivel_atividade || "Não informado" },
               ].map((f) => (
                 <div key={f.label} className="flex items-center justify-between rounded-xl bg-muted px-4 py-3">
                   <span className="text-sm text-muted-foreground">{f.label}</span>
@@ -222,21 +239,21 @@ const Profile = () => {
       <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
         <div className="mb-4 flex items-center gap-2">
           <Brain className="h-4 w-4 text-primary" />
-          <p className="text-sm font-semibold text-foreground">Saude mental</p>
+          <p className="label-modern">Saúde mental</p>
         </div>
         <div className="flex flex-col gap-3">
           {editing ? (
             <>
-              <SelectField label="Nivel de estresse" value={perfil.nivel_estresse} onChange={(v) => setPerfil((p) => ({ ...p, nivel_estresse: v }))} options={[{ value: "baixo", label: "Baixo" }, { value: "moderado", label: "Moderado" }, { value: "alto", label: "Alto" }]} />
+              <SelectField label="Nível de estresse" value={perfil.nivel_estresse} onChange={(v) => setPerfil((p) => ({ ...p, nivel_estresse: v }))} options={[{ value: "baixo", label: "Baixo" }, { value: "moderado", label: "Moderado" }, { value: "alto", label: "Alto" }]} />
               <SelectField label="Qualidade do sono" value={perfil.qualidade_sono} onChange={(v) => setPerfil((p) => ({ ...p, qualidade_sono: v }))} options={[{ value: "boa", label: "Boa" }, { value: "irregular", label: "Irregular" }, { value: "ruim", label: "Ruim" }]} />
-              <SelectField label="Humor geral" value={perfil.humor_geral} onChange={(v) => setPerfil((p) => ({ ...p, humor_geral: v }))} options={[{ value: "bom", label: "Bom" }, { value: "variavel", label: "Variavel" }, { value: "ruim", label: "Ruim" }]} />
+              <SelectField label="Humor geral" value={perfil.humor_geral} onChange={(v) => setPerfil((p) => ({ ...p, humor_geral: v }))} options={[{ value: "bom", label: "Bom" }, { value: "variavel", label: "Variável" }, { value: "ruim", label: "Ruim" }]} />
             </>
           ) : (
             <>
               {[
-                { label: "Estresse", value: perfil.nivel_estresse || "Nao informado" },
-                { label: "Sono", value: perfil.qualidade_sono || "Nao informado" },
-                { label: "Humor", value: perfil.humor_geral || "Nao informado" },
+                { label: "Estresse", value: perfil.nivel_estresse || "Não informado" },
+                { label: "Sono", value: perfil.qualidade_sono || "Não informado" },
+                { label: "Humor", value: perfil.humor_geral || "Não informado" },
               ].map((f) => (
                 <div key={f.label} className="flex items-center justify-between rounded-xl bg-muted px-4 py-3">
                   <span className="text-sm text-muted-foreground">{f.label}</span>
@@ -252,19 +269,19 @@ const Profile = () => {
       <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
         <div className="mb-4 flex items-center gap-2">
           <Target className="h-4 w-4 text-primary" />
-          <p className="text-sm font-semibold text-foreground">Objetivos</p>
+          <p className="label-modern">Objetivos</p>
         </div>
         <div className="flex flex-col gap-3">
           {editing ? (
             <>
               <SelectField label="Rotina" value={perfil.rotina} onChange={(v) => setPerfil((p) => ({ ...p, rotina: v }))} options={[{ value: "trabalho", label: "Trabalho" }, { value: "estudo", label: "Estudo" }, { value: "ambos", label: "Ambos" }, { value: "nenhum", label: "Nenhum" }]} />
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-medium text-muted-foreground">Objetivo principal</label>
-                <input value={perfil.objetivo || ""} onChange={(e) => setPerfil((p) => ({ ...p, objetivo: e.target.value }))} placeholder="Ex: melhorar saude mental" className="rounded-xl border border-border bg-card px-3 py-2.5 text-sm outline-none focus:border-primary" />
+                <label className="label-modern">Objetivo principal</label>
+                <input value={perfil.objetivo || ""} onChange={(e) => setPerfil((p) => ({ ...p, objetivo: e.target.value }))} placeholder="Ex: melhorar saúde mental" className="input-modern" />
               </div>
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-medium text-muted-foreground">Tempo livre diario</label>
-                <input value={perfil.tempo_livre || ""} onChange={(e) => setPerfil((p) => ({ ...p, tempo_livre: e.target.value }))} placeholder="Ex: 1-3 horas" className="rounded-xl border border-border bg-card px-3 py-2.5 text-sm outline-none focus:border-primary" />
+                <label className="label-modern">Tempo livre diario</label>
+                <input value={perfil.tempo_livre || ""} onChange={(e) => setPerfil((p) => ({ ...p, tempo_livre: e.target.value }))} placeholder="Ex: 1-3 horas" className="input-modern" />
               </div>
             </>
           ) : (

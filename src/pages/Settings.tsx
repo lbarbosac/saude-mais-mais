@@ -1,9 +1,154 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Bell, MapPin, Moon, Globe, Shield, LogOut, ChevronRight, Trash2, AlertTriangle, MessageCircle, Loader2, Sun, Eye, EyeOff, Lock, Users } from "lucide-react";
+import { Bell, MapPin, Moon, Globe, Shield, LogOut, ChevronRight, Trash2, AlertTriangle, MessageCircle, Loader2, Sun, Eye, EyeOff, Lock, Users, BellRing, BellOff, Send } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
+import { usePushNotifications } from "@/hooks/usePushNotifications";
+
+// ── Notifications Panel ─────────────────────────────────────────────────────
+function NotificationsPanel({ onClose }: { onClose: () => void }) {
+  const {
+    permission,
+    reminderHour,
+    isSubscribed,
+    isSubscribing,
+    requestPermission,
+    subscribe,
+    sendTestNotification,
+    isSupported,
+  } = usePushNotifications();
+
+  const [hour, setHour] = useState(reminderHour);
+  const [requesting, setRequesting] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const handleEnable = async () => {
+    setRequesting(true);
+    await requestPermission();
+    setRequesting(false);
+  };
+
+  const handleSave = async () => {
+    const ok = await subscribe(hour);
+    if (ok) {
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    }
+  };
+
+  if (!isSupported) {
+    return (
+      <div className="flex flex-col gap-3">
+        <p className="text-lg font-bold text-foreground">Notificações</p>
+        <p className="text-sm text-muted-foreground">
+          Seu navegador não suporta notificações push. Instale o app para receber lembretes.
+        </p>
+        <button onClick={onClose} className="mt-2 w-full rounded-xl bg-muted py-2.5 text-sm font-medium text-foreground">Fechar</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <p className="text-lg font-bold text-foreground">Notificações</p>
+
+      {/* Permission status */}
+      <div className={[
+        "flex items-center gap-3 rounded-xl p-3",
+        permission === "granted" ? "bg-emerald-500/10" : permission === "denied" ? "bg-destructive/10" : "bg-muted",
+      ].join(" ")}>
+        {permission === "granted"
+          ? <BellRing className="h-5 w-5 shrink-0 text-emerald-500" />
+          : permission === "denied"
+          ? <BellOff className="h-5 w-5 shrink-0 text-destructive" />
+          : <Bell className="h-5 w-5 shrink-0 text-muted-foreground" />}
+        <div>
+          <p className="text-sm font-medium text-foreground">
+            {permission === "granted" ? "Notificações ativas" : permission === "denied" ? "Notificações bloqueadas" : "Permissão necessária"}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {permission === "denied"
+              ? "Habilite nas configurações do navegador."
+              : permission === "granted"
+              ? "Você receberá lembretes diários."
+              : "Clique em Ativar para receber lembretes."}
+          </p>
+        </div>
+      </div>
+
+      {permission !== "granted" && permission !== "denied" && (
+        <button
+          onClick={handleEnable}
+          disabled={requesting}
+          className="flex items-center justify-center gap-2 rounded-xl gradient-calm py-3 text-sm font-semibold text-white disabled:opacity-60"
+        >
+          {requesting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bell className="h-4 w-4" />}
+          {requesting ? "Aguardando..." : "Ativar notificações"}
+        </button>
+      )}
+
+      {permission === "granted" && (
+        <>
+          {/* Reminder time picker */}
+          <div className="flex flex-col gap-2">
+            <label htmlFor="reminder-hour" className="text-sm font-medium text-foreground">
+              Horário do lembrete diário
+            </label>
+            <div className="flex items-center gap-3">
+              <input
+                id="reminder-hour"
+                type="range"
+                min={5}
+                max={22}
+                value={hour}
+                onChange={(e) => setHour(Number(e.target.value))}
+                className="flex-1 accent-primary"
+              />
+              <span className="w-14 rounded-lg bg-muted px-2 py-1 text-center text-sm font-semibold text-foreground">
+                {String(hour).padStart(2, "0")}:00
+              </span>
+            </div>
+          </div>
+
+          <button
+            onClick={handleSave}
+            disabled={isSubscribing}
+            className="flex items-center justify-center gap-2 rounded-xl bg-primary py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-60"
+          >
+            {isSubscribing
+              ? <Loader2 className="h-4 w-4 animate-spin" />
+              : saved
+              ? "✓ Salvo!"
+              : isSubscribed
+              ? "Atualizar horário"
+              : "Ativar lembretes diários"}
+          </button>
+          {isSubscribed && (
+            <p className="text-xs text-muted-foreground -mt-1">
+              Você vai receber lembretes mesmo com o app fechado.
+            </p>
+          )}
+
+          {/* Test notification */}
+          <button
+            onClick={sendTestNotification}
+            className="flex items-center justify-center gap-2 rounded-xl bg-muted py-2.5 text-sm font-medium text-foreground hover:bg-muted/70"
+          >
+            <Send className="h-4 w-4" />
+            Enviar notificação de teste
+          </button>
+        </>
+      )}
+
+      <button onClick={onClose} className="rounded-xl bg-muted py-2.5 text-sm font-medium text-muted-foreground hover:text-foreground">
+        Fechar
+      </button>
+    </div>
+  );
+}
 import { supabase } from "@/lib/supabase/client";
+import { callEdgeFunction } from "@/lib/supabase/functions";
+import { applyTheme, getStoredTheme, type Theme } from "@/lib/utils/theme";
 import { toast } from "@/hooks/use-toast";
 import BackButton from "@/components/BackButton";
 
@@ -22,7 +167,7 @@ const defaultLucasSettings: LucasSettings = {
 };
 
 const Settings = () => {
-  const { user, signOut, session } = useAuth();
+  const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteInput, setDeleteInput] = useState("");
@@ -35,7 +180,7 @@ const Settings = () => {
   const [loadingLucas, setLoadingLucas] = useState(true);
 
   // Preferences state
-  const [theme, setTheme] = useState<"claro" | "escuro">("claro");
+  const [theme, setTheme] = useState<Theme>(() => getStoredTheme());
   const [language, setLanguage] = useState<"pt-BR" | "en">("pt-BR");
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [locationEnabled, setLocationEnabled] = useState(false);
@@ -63,12 +208,6 @@ const Settings = () => {
       loadLucasSettings();
       loadPreferences();
     }
-    // Load theme from localStorage
-    const savedTheme = localStorage.getItem("saude-theme") as "claro" | "escuro" | null;
-    if (savedTheme) {
-      setTheme(savedTheme);
-      document.documentElement.classList.toggle("dark", savedTheme === "escuro");
-    }
     const savedLang = localStorage.getItem("saude-language") as "pt-BR" | "en" | null;
     if (savedLang) setLanguage(savedLang);
   }, [user]);
@@ -89,19 +228,19 @@ const Settings = () => {
     if (prefs) {
       setNotificationsEnabled(prefs.notificacoes_ativas ?? true);
       setLocationEnabled(prefs.localizacao_permitida ?? false);
-      if (prefs.tema === "escuro") {
-        setTheme("escuro");
-        document.documentElement.classList.add("dark");
+      if (prefs.tema && (prefs.tema === "escuro" || prefs.tema === "claro")) {
+        setTheme(prefs.tema as Theme);
+        applyTheme(prefs.tema as Theme);
       }
     }
     if (perfil) {
-      setProfilePrivate((perfil as any).profile_private ?? false);
-      setShowHabits((perfil as any).show_habits ?? true);
-      setShowProgress((perfil as any).show_progress ?? true);
-      setShowStreak((perfil as any).show_streak ?? true);
-      setShowDadosFisicos((perfil as any).show_dados_fisicos ?? true);
-      setShowSaudeMental((perfil as any).show_saude_mental ?? true);
-      setShowObjetivos((perfil as any).show_objetivos ?? true);
+      setProfilePrivate(((perfil as Record<string,unknown>).profile_private as boolean) ?? false);
+      setShowHabits(((perfil as Record<string,unknown>).show_habits as boolean) ?? true);
+      setShowProgress(((perfil as Record<string,unknown>).show_progress as boolean) ?? true);
+      setShowStreak(((perfil as Record<string,unknown>).show_streak as boolean) ?? true);
+      setShowDadosFisicos(((perfil as Record<string,unknown>).show_dados_fisicos as boolean) ?? true);
+      setShowSaudeMental(((perfil as Record<string,unknown>).show_saude_mental as boolean) ?? true);
+      setShowObjetivos(((perfil as Record<string,unknown>).show_objetivos as boolean) ?? true);
     }
   };
 
@@ -116,7 +255,7 @@ const Settings = () => {
         show_dados_fisicos: showDadosFisicos,
         show_saude_mental: showSaudeMental,
         show_objetivos: showObjetivos,
-      } as any)
+      } as Record<string, unknown>)
       .eq("user_id", user!.id);
     setShowPrivacy(false);
     toast({ title: "Configurações de privacidade salvas" });
@@ -130,10 +269,10 @@ const Settings = () => {
     ]);
     if (prefsResult.data) {
       setLucasSettings({
-        lucas_estilo: (prefsResult.data as any).lucas_estilo || "equilibrado",
-        lucas_profundidade: (prefsResult.data as any).lucas_profundidade || "moderado",
-        lucas_tom: (prefsResult.data as any).lucas_tom || "acolhedor",
-        lucas_sugestoes: (prefsResult.data as any).lucas_sugestoes || "moderado",
+        lucas_estilo: (prefsResult.data as Record<string, unknown>).lucas_estilo as string || "equilibrado",
+        lucas_profundidade: (prefsResult.data as Record<string, unknown>).lucas_profundidade as string || "moderado",
+        lucas_tom: (prefsResult.data as Record<string, unknown>).lucas_tom as string || "acolhedor",
+        lucas_sugestoes: (prefsResult.data as Record<string, unknown>).lucas_sugestoes as string || "moderado",
       });
     }
     if (perfilResult.data) setSobreVoce((perfilResult.data as any).sobre_voce || "");
@@ -148,8 +287,8 @@ const Settings = () => {
         lucas_profundidade: lucasSettings.lucas_profundidade,
         lucas_tom: lucasSettings.lucas_tom,
         lucas_sugestoes: lucasSettings.lucas_sugestoes,
-      } as any).eq("user_id", user!.id),
-      supabase.from("perfil_usuario").update({ sobre_voce: sobreVoce.slice(0, 2000) } as any).eq("user_id", user!.id),
+      } as Record<string, unknown>).eq("user_id", user!.id),
+      supabase.from("perfil_usuario").update({ sobre_voce: sobreVoce.slice(0, 2000) } as Record<string, unknown>).eq("user_id", user!.id),
     ]);
     toast({ title: "Configuracoes do Lucas salvas!" });
     setSavingLucas(false);
@@ -159,7 +298,7 @@ const Settings = () => {
     setTheme(newTheme);
     localStorage.setItem("saude-theme", newTheme);
     document.documentElement.classList.toggle("dark", newTheme === "escuro");
-    await supabase.from("preferencias_usuario").update({ tema: newTheme } as any).eq("user_id", user!.id);
+    await supabase.from("preferencias_usuario").update({ tema: newTheme } as Record<string, unknown>).eq("user_id", user!.id);
     toast({ title: newTheme === "escuro" ? "Tema escuro ativado" : "Tema claro ativado" });
   };
 
@@ -172,14 +311,14 @@ const Settings = () => {
   const handleToggleNotifications = async () => {
     const newVal = !notificationsEnabled;
     setNotificationsEnabled(newVal);
-    await supabase.from("preferencias_usuario").update({ notificacoes_ativas: newVal } as any).eq("user_id", user!.id);
-    toast({ title: newVal ? "Notificacoes ativadas" : "Notificacoes desativadas" });
+    await supabase.from("preferencias_usuario").update({ notificacoes_ativas: newVal } as Record<string, unknown>).eq("user_id", user!.id);
+    toast({ title: newVal ? "Notificacoes ativadas" : "Notificações desativadas" });
   };
 
   const handleToggleLocation = async () => {
     const newVal = !locationEnabled;
     setLocationEnabled(newVal);
-    await supabase.from("preferencias_usuario").update({ localizacao_permitida: newVal } as any).eq("user_id", user!.id);
+    await supabase.from("preferencias_usuario").update({ localizacao_permitida: newVal } as Record<string, unknown>).eq("user_id", user!.id);
     toast({ title: newVal ? "Localizacao ativada" : "Localizacao desativada" });
   };
 
@@ -196,13 +335,11 @@ const Settings = () => {
     }
     setDeleting(true);
     try {
-      const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/excluir-dados`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
-        body: JSON.stringify({ confirmacao: "EXCLUIR MEUS DADOS" }),
+      const { error: deleteErr } = await callEdgeFunction("excluir-dados", {
+        body: { confirmacao: "EXCLUIR MEUS DADOS" },
       });
-      if (!resp.ok) throw new Error("Erro ao excluir dados");
-      toast({ title: "Dados excluidos com sucesso" });
+      if (deleteErr) throw new Error(deleteErr);
+      toast({ title: "Dados excluídos com sucesso" });
       await signOut();
       navigate("/login");
     } catch {
@@ -262,7 +399,7 @@ const Settings = () => {
 
       {/* Lucas Amigo Settings */}
       <div>
-        <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Lucas Amigo - Saude Mental</p>
+        <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Lucas — Saúde Mental</p>
         <div className="rounded-2xl border border-border bg-card p-4 space-y-5">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
@@ -295,7 +432,7 @@ const Settings = () => {
                   <p className="text-sm font-medium text-foreground">Conte mais sobre voce</p>
                   <p className="text-xs text-muted-foreground">Compartilhe informacoes pessoais para o Lucas te entender melhor</p>
                 </div>
-                <textarea value={sobreVoce} onChange={(e) => setSobreVoce(e.target.value.slice(0, 2000))} placeholder="Ex: Sou introvertido, trabalho de casa..." className="w-full rounded-xl border border-border bg-muted px-4 py-3 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-primary/30 resize-none" rows={4} />
+                <textarea value={sobreVoce} onChange={(e) => setSobreVoce(e.target.value.slice(0, 2000))} placeholder="Ex: Sou introvertido, trabalho de casa..." className="textarea-modern" rows={4} />
                 <p className="text-xs text-muted-foreground text-right">{sobreVoce.length}/2000</p>
               </div>
               <button onClick={saveLucasSettings} disabled={savingLucas} className="w-full rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-soft disabled:opacity-50">
@@ -324,7 +461,7 @@ const Settings = () => {
           <button onClick={() => setShowNotifications(true)} className="flex items-center gap-4 rounded-2xl border border-border bg-card p-4 text-left transition-colors hover:bg-muted">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary"><Bell className="h-5 w-5" /></div>
             <div className="flex-1">
-              <p className="text-sm font-medium text-foreground">Notificacoes</p>
+              <p className="text-sm font-medium text-foreground">Notificações</p>
               <p className="text-xs text-muted-foreground">{notificationsEnabled ? "Ativadas" : "Desativadas"}</p>
             </div>
             <ChevronRight className="h-4 w-4 text-muted-foreground" />
@@ -376,14 +513,19 @@ const Settings = () => {
 
       {/* LGPD */}
       <div>
-        <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">LGPD - Privacidade</p>
+        <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">LGPD — Privacidade</p>
+        <div className="flex gap-3 mb-3">
+          <a href="/termos" className="text-xs text-primary underline-offset-4 hover:underline">Termos de Uso</a>
+          <span className="text-muted-foreground text-xs">·</span>
+          <a href="/privacidade" className="text-xs text-primary underline-offset-4 hover:underline">Política de Privacidade</a>
+        </div>
         <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-4">
           <div className="flex items-center gap-3 mb-3">
             <AlertTriangle className="h-5 w-5 text-destructive" />
             <p className="text-sm font-semibold text-destructive">Excluir todos os meus dados</p>
           </div>
           <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
-            Conforme a LGPD, voce tem o direito de solicitar a exclusao de todos os seus dados pessoais.
+            Conforme a LGPD, você tem o direito de solicitar a exclusão de todos os seus dados pessoais.
             Esta acao e irreversivel e removera todas as suas conversas, habitos, check-ins e dados de perfil.
           </p>
           <button onClick={() => setShowDeleteModal(true)} className="flex items-center gap-2 rounded-xl bg-destructive/10 px-4 py-2.5 text-sm font-medium text-destructive hover:bg-destructive/20">
@@ -393,7 +535,7 @@ const Settings = () => {
         </div>
       </div>
 
-      <p className="text-center text-xs text-muted-foreground">Saude++ v1.0.0</p>
+      <p className="text-center text-xs text-muted-foreground">Saúde em Sintonia v1.0.0</p>
 
       {/* === MODALS === */}
 
@@ -412,12 +554,9 @@ const Settings = () => {
         </div>
       </Modal>
 
-      {/* Notifications Modal */}
+      {/* Notifications Modal — real push notifications */}
       <Modal show={showNotifications} onClose={() => setShowNotifications(false)}>
-        <p className="text-lg font-bold text-foreground mb-4">Notificacoes</p>
-        <Toggle enabled={notificationsEnabled} onToggle={() => { handleToggleNotifications(); }} label="Ativar notificacoes" />
-        <p className="text-xs text-muted-foreground mt-2">Receba lembretes de habitos, check-ins e novidades.</p>
-        <button onClick={() => setShowNotifications(false)} className="mt-4 w-full rounded-xl bg-primary py-2.5 text-sm font-semibold text-primary-foreground">Fechar</button>
+        <NotificationsPanel onClose={() => setShowNotifications(false)} />
       </Modal>
 
       {/* Location Modal */}
@@ -487,9 +626,9 @@ const Settings = () => {
         <div className="text-center">
           <AlertTriangle className="mx-auto h-10 w-10 text-destructive mb-3" />
           <p className="text-lg font-bold text-foreground mb-2">Tem certeza que deseja excluir sua conta?</p>
-          <p className="text-sm text-muted-foreground mb-4">Todas as informacoes serao perdidas permanentemente. Esta acao nao pode ser desfeita.</p>
+          <p className="text-sm text-muted-foreground mb-4">Todas as informações serão perdidas permanentemente. Esta ação não pode ser desfeita.</p>
           <p className="text-xs font-medium text-destructive mb-2 text-left">Digite "EXCLUIR MEUS DADOS" para confirmar:</p>
-          <input value={deleteInput} onChange={(e) => setDeleteInput(e.target.value)} placeholder="EXCLUIR MEUS DADOS" className="w-full rounded-xl border border-destructive/30 bg-card px-4 py-2.5 text-sm outline-none focus:border-destructive mb-4" />
+          <input value={deleteInput} onChange={(e) => setDeleteInput(e.target.value)} placeholder="EXCLUIR MEUS DADOS" className="input-modern !border-destructive/40 focus:!border-destructive focus:!ring-destructive/20 mb-4" />
           <div className="flex gap-3">
             <button onClick={() => { setShowDeleteModal(false); setDeleteInput(""); }} className="flex-1 rounded-xl border border-border py-2.5 text-sm font-medium text-foreground">Cancelar</button>
             <button onClick={handleDeleteData} disabled={deleting} className="flex-1 rounded-xl bg-destructive py-2.5 text-sm font-semibold text-destructive-foreground disabled:opacity-50">

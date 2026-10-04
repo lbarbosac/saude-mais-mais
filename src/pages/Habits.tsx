@@ -1,33 +1,21 @@
-import { useMemo } from "react";
-import { motion } from "framer-motion";
+import { useMemo, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   CheckCircle2, Target, RefreshCw, Loader2,
   BookOpen, Dumbbell, Brain, Heart, Users, Moon,
-  Droplets, Apple, Music, Eye, Check,
+  Droplets, Apple, Music, Eye, Check, Sun, Leaf,
+  Smile, Coffee, Wind, Star, Shield, Clock, Zap, Flame,
+  Sparkles,
 } from "lucide-react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/lib/supabase/client";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { callEdgeFunction } from "@/lib/supabase/functions";
-import { getDailySeed, seededShuffle, todayISO } from "@/lib/utils/date";
+import { RenovarHabitosModal } from "@/components/features/habits/RenovarHabitosModal";
+import { useHabitosDoDia } from "@/hooks/useHabitosDoDia";
+import type { HabitoSelecionado } from "@/lib/utils/habitSelection";
 import { toast } from "@/hooks/use-toast";
 
-// ─── Tipos ───────────────────────────────────────────────────────────────────
-
-interface HabitoRaw {
-  id: string;
-  nome_habito: string;
-  descricao: string | null;
-  icone: string;
-}
-
-interface Habito extends HabitoRaw {
-  concluido_hoje: boolean;
-}
-
-// ─── Constantes ──────────────────────────────────────────────────────────────
-
-const HABITS_PER_DAY = 6;
+// ─── Ícones ───────────────────────────────────────────────────────────────────
 
 const ICON_MAP: Record<string, React.ElementType> = {
   "book-open": BookOpen,
@@ -41,104 +29,47 @@ const ICON_MAP: Record<string, React.ElementType> = {
   music:       Music,
   eye:         Eye,
   check:       Check,
+  sun:         Sun,
+  leaf:        Leaf,
+  smile:       Smile,
+  coffee:      Coffee,
+  wind:        Wind,
+  star:        Star,
+  shield:      Shield,
+  clock:       Clock,
+  target:      Target,
+  zap:         Zap,
+  flame:       Flame,
 };
 
-// ─── Fetchers ─────────────────────────────────────────────────────────────────
+// Labels de categoria para exibição
+const CATEGORIA_LABEL: Record<string, string> = {
+  movimento:          "Movimento",
+  agua_alimentacao:   "Alimentação",
+  sono_descanso:      "Descanso",
+  respiracao:         "Respiração",
+  social_gratidao:    "Social",
+  foco_aprendizado:   "Foco",
+  humor_emocao:       "Emoção",
+  geral:              "Geral",
+};
 
-async function fetchHabitos(userId: string): Promise<Habito[]> {
-  const today = todayISO();
-
-  const [habitosResult, registrosResult] = await Promise.all([
-    supabase
-      .from("habitos")
-      .select("id, nome_habito, descricao, icone")
-      .eq("ativo", true)
-      .order("created_at"),
-    supabase
-      .from("habito_registro")
-      .select("habito_id, concluido")
-      .eq("data", today),
-  ]);
-
-  const allHabitos: HabitoRaw[] = habitosResult.data ?? [];
-  if (allHabitos.length === 0) return [];
-
-  const seed = getDailySeed(today, userId);
-  const todayHabitos = seededShuffle(allHabitos, seed).slice(0, HABITS_PER_DAY);
-
-  const registroMap = new Map(
-    (registrosResult.data ?? []).map((r) => [r.habito_id, r.concluido])
-  );
-
-  return todayHabitos.map((h) => ({
-    ...h,
-    concluido_hoje: registroMap.get(h.id) ?? false,
-  }));
-}
-
-async function toggleHabitoStatus(habito: Habito, userId: string): Promise<void> {
-  const today = todayISO();
-  const newState = !habito.concluido_hoje;
-
-  const { data: existing } = await supabase
-    .from("habito_registro")
-    .select("id")
-    .eq("habito_id", habito.id)
-    .eq("data", today)
-    .maybeSingle();
-
-  if (existing) {
-    await supabase
-      .from("habito_registro")
-      .update({ concluido: newState })
-      .eq("id", existing.id);
-  } else {
-    await supabase.from("habito_registro").insert({
-      habito_id: habito.id,
-      user_id: userId,
-      concluido: newState,
-      data: today,
-    });
-  }
-}
-
-// ─── Componente ───────────────────────────────────────────────────────────────
+// ─── Componente principal ─────────────────────────────────────────────────────
 
 export default function HabitsPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
-  const queryKey = ["habitos", user?.id];
+  const [showRenovarModal, setShowRenovarModal] = useState(false);
 
-  const { data: habitos = [], isLoading } = useQuery({
-    queryKey,
-    queryFn: () => fetchHabitos(user!.id),
-    enabled: !!user,
-  });
-
-  const toggleMutation = useMutation({
-    mutationFn: (habito: Habito) => toggleHabitoStatus(habito, user!.id),
-    onMutate: async (habito) => {
-      // Optimistic update
-      await queryClient.cancelQueries({ queryKey });
-      const snapshot = queryClient.getQueryData<Habito[]>(queryKey);
-      queryClient.setQueryData<Habito[]>(queryKey, (prev = []) =>
-        prev.map((h) =>
-          h.id === habito.id ? { ...h, concluido_hoje: !h.concluido_hoje } : h
-        )
-      );
-      return { snapshot };
-    },
-    onError: (_err, _habito, ctx) => {
-      // Reverte em caso de erro
-      queryClient.setQueryData(queryKey, ctx?.snapshot);
-      toast({ title: "Erro ao atualizar hábito", variant: "destructive" });
-    },
-  });
+  const { habitos, isLoading, toggleMutation, queryKey } = useHabitosDoDia(user?.id);
 
   const generateMutation = useMutation({
     mutationFn: () => callEdgeFunction("gerar-habitos"),
     onSuccess: () => {
-      toast({ title: "Hábitos gerados!", description: "Seus hábitos personalizados foram criados." });
+      toast({
+        title: "Novos hábitos gerados!",
+        description: "Sua lista foi renovada com hábitos personalizados.",
+      });
       queryClient.invalidateQueries({ queryKey });
     },
     onError: (err: Error) => {
@@ -164,50 +95,81 @@ export default function HabitsPage() {
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col gap-6">
-      {/* Header */}
+
+      {/* Cabeçalho */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Meus Hábitos</h1>
-          <p className="text-sm text-muted-foreground">Construa sua rotina ideal</p>
+          <h1 className="text-2xl font-bold text-foreground">Hábitos do Dia</h1>
+          <p className="text-sm text-muted-foreground">
+            {habitos.length > 0
+              ? "Selecionados especialmente para você hoje"
+              : "Gere seus hábitos personalizados"}
+          </p>
         </div>
         <button
-          onClick={() => generateMutation.mutate()}
+          onClick={() => setShowRenovarModal(true)}
           disabled={generateMutation.isPending}
-          className="flex h-10 items-center gap-2 rounded-xl bg-primary px-3 text-sm font-medium text-primary-foreground shadow-soft disabled:opacity-50"
+          aria-label={generateMutation.isPending ? "Gerando hábitos..." : "Renovar hábitos com IA"}
+          className="flex h-10 items-center gap-2 rounded-xl bg-primary px-3 text-sm font-medium text-primary-foreground shadow-soft transition-all hover:bg-primary/90 disabled:opacity-50"
         >
           {generateMutation.isPending
-            ? <Loader2 className="h-4 w-4 animate-spin" />
-            : <RefreshCw className="h-4 w-4" />}
-          {generateMutation.isPending ? "Gerando..." : "Gerar com IA"}
+            ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            : <RefreshCw className="h-4 w-4" aria-hidden />}
+          <span className="hidden sm:inline">
+            {generateMutation.isPending ? "Gerando..." : "Renovar"}
+          </span>
         </button>
       </div>
 
-      {/* Barra de progresso */}
-      {habitos.length > 0 && (
-        <div className="rounded-2xl gradient-nature p-5">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Target className="h-4 w-4 text-secondary-foreground" aria-hidden />
-              <span className="text-sm font-semibold text-secondary-foreground">Progresso de hoje</span>
-            </div>
-            <span className="text-sm font-bold text-secondary-foreground">
-              {completed}/{habitos.length}
-            </span>
-          </div>
-          <div className="mt-3 h-2 overflow-hidden rounded-full bg-secondary-foreground/10">
-            <motion.div
-              className="h-full rounded-full bg-secondary-foreground/40"
-              animate={{ width: `${progress}%` }}
-              transition={{ duration: 0.4 }}
-            />
-          </div>
-        </div>
+      {/* Estado vazio */}
+      {habitos.length === 0 && (
+        <EmptyState
+          onGenerate={() => generateMutation.mutate()}
+          isGenerating={generateMutation.isPending}
+        />
       )}
 
+      {/* Barra de progresso */}
+      <AnimatePresence>
+        {habitos.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="rounded-2xl gradient-nature p-5"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Target className="h-4 w-4 text-secondary-foreground" aria-hidden />
+                <span className="text-sm font-semibold text-secondary-foreground">
+                  Progresso de hoje
+                </span>
+              </div>
+              <span className="text-sm font-bold text-secondary-foreground">
+                {completed}/{habitos.length}
+              </span>
+            </div>
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-secondary-foreground/10">
+              <motion.div
+                className="h-full rounded-full bg-secondary-foreground/40"
+                animate={{ width: `${progress}%` }}
+                transition={{ duration: 0.5, ease: "easeOut" }}
+              />
+            </div>
+            {completed === habitos.length && habitos.length > 0 && (
+              <motion.p
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="mt-2 text-xs font-medium text-secondary-foreground/80"
+              >
+                <span className="inline-flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5" aria-hidden />Parabéns! Você completou todos os hábitos de hoje.</span>
+              </motion.p>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Lista de hábitos */}
-      {habitos.length === 0 ? (
-        <EmptyState onGenerate={() => generateMutation.mutate()} />
-      ) : (
+      {habitos.length > 0 && (
         <div className="flex flex-col gap-3">
           {habitos.map((habito, i) => (
             <HabitoCard
@@ -219,51 +181,82 @@ export default function HabitsPage() {
           ))}
         </div>
       )}
+
+      {/* Nota explicativa */}
+      {habitos.length > 0 && (
+        <p className="text-center text-xs text-muted-foreground">
+          Seus hábitos mudam a cada dia para manter a variedade. Use "Renovar" para gerar uma lista completamente nova.
+        </p>
+      )}
     </motion.div>
   );
 }
 
-// ─── Sub-componentes ──────────────────────────────────────────────────────────
+// ─── HabitoCard ───────────────────────────────────────────────────────────────
 
 function HabitoCard({
   habito,
   index,
   onToggle,
 }: {
-  habito: Habito;
+  habito: HabitoSelecionado;
   index: number;
   onToggle: () => void;
 }) {
   const Icon = ICON_MAP[habito.icone] ?? Check;
   const done = habito.concluido_hoje;
+  const catLabel = CATEGORIA_LABEL[habito.categoria] ?? habito.categoria;
 
   return (
     <motion.button
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.04 }}
+      transition={{ delay: index * 0.05 }}
       onClick={onToggle}
       aria-pressed={done}
-      aria-label={`${done ? "Desmarcar" : "Marcar"} hábito: ${habito.nome_habito}`}
+      aria-label={`${done ? "Desmarcar" : "Marcar como concluído"}: ${habito.nome_habito}`}
       className={[
-        "flex items-center gap-4 rounded-2xl border-2 p-4 text-left transition-all",
-        done ? "border-primary/20 bg-primary/5" : "border-border bg-card hover:border-primary/30",
+        "flex items-center gap-4 rounded-2xl border-2 p-4 text-left transition-all duration-200",
+        done
+          ? "border-primary/20 bg-primary/5"
+          : "border-border bg-card hover:border-primary/30 hover:shadow-soft",
       ].join(" ")}
     >
-      <div className={["flex h-10 w-10 items-center justify-center rounded-xl", done ? "bg-primary/10" : "bg-muted"].join(" ")}>
-        <Icon className={["h-5 w-5", done ? "text-primary" : "text-muted-foreground"].join(" ")} aria-hidden />
+      {/* Ícone */}
+      <div className={[
+        "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition-colors",
+        done ? "bg-primary/10" : "bg-muted",
+      ].join(" ")}>
+        <Icon
+          className={["h-5 w-5", done ? "text-primary" : "text-muted-foreground"].join(" ")}
+          aria-hidden
+        />
       </div>
-      <div className="flex-1">
-        <p className={["font-medium", done ? "text-muted-foreground line-through" : "text-foreground"].join(" ")}>
+
+      {/* Texto */}
+      <div className="min-w-0 flex-1">
+        <p className={[
+          "font-medium leading-snug",
+          done ? "text-muted-foreground line-through" : "text-foreground",
+        ].join(" ")}>
           {habito.nome_habito}
         </p>
-        {habito.descricao && (
-          <p className="text-xs text-muted-foreground">{habito.descricao}</p>
-        )}
+        <div className="mt-0.5 flex items-center gap-2">
+          {habito.descricao && (
+            <p className="truncate text-xs text-muted-foreground">{habito.descricao}</p>
+          )}
+          <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+            {catLabel}
+          </span>
+        </div>
       </div>
+
+      {/* Checkbox visual */}
       <div className={[
-        "flex h-7 w-7 items-center justify-center rounded-lg border-2 transition-colors",
-        done ? "border-primary bg-primary text-primary-foreground" : "border-border",
+        "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border-2 transition-all",
+        done
+          ? "border-primary bg-primary text-primary-foreground"
+          : "border-border",
       ].join(" ")}>
         {done && <CheckCircle2 className="h-4 w-4" aria-hidden />}
       </div>
@@ -271,22 +264,41 @@ function HabitoCard({
   );
 }
 
-function EmptyState({ onGenerate }: { onGenerate: () => void }) {
+// ─── EmptyState ───────────────────────────────────────────────────────────────
+
+function EmptyState({
+  onGenerate,
+  isGenerating,
+}: {
+  onGenerate: () => void;
+  isGenerating: boolean;
+}) {
   return (
-    <div className="flex flex-col items-center gap-4 rounded-2xl border-2 border-dashed border-border p-8 text-center">
-      <Target className="h-8 w-8 text-muted-foreground" aria-hidden />
+    <motion.div
+      initial={{ opacity: 0, scale: 0.97 }}
+      animate={{ opacity: 1, scale: 1 }}
+      className="flex flex-col items-center gap-5 rounded-2xl border-2 border-dashed border-border p-10 text-center"
+    >
+      <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10">
+        <Sparkles className="h-8 w-8 text-primary" aria-hidden />
+      </div>
       <div>
-        <p className="font-semibold text-foreground">Nenhum hábito ainda</p>
+        <p className="text-lg font-bold text-foreground">Nenhum hábito ainda</p>
         <p className="mt-1 text-sm text-muted-foreground">
-          Clique em "Gerar com IA" para criar hábitos personalizados baseados no seu perfil.
+          Clique no botão abaixo para criar sua lista personalizada com inteligência artificial.
+          Novos hábitos serão selecionados todo dia automaticamente.
         </p>
       </div>
       <button
         onClick={onGenerate}
-        className="rounded-xl bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground"
+        disabled={isGenerating}
+        className="flex items-center gap-2 rounded-xl bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-soft transition-all hover:bg-primary/90 disabled:opacity-60"
       >
-        Gerar com IA
+        {isGenerating
+          ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+          : <Sparkles className="h-4 w-4" aria-hidden />}
+        {isGenerating ? "Gerando seus hábitos..." : "Criar hábitos com IA"}
       </button>
-    </div>
+    </motion.div>
   );
 }

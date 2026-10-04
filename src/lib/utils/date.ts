@@ -1,8 +1,13 @@
 /**
- * Retorna a data de hoje no formato ISO (YYYY-MM-DD).
+ * Retorna a data de hoje no formato ISO (YYYY-MM-DD) no horário local.
+ * Evita o bug de UTC onde em UTC-3 às 23h seria "amanhã" em UTC.
  */
 export function todayISO(): string {
-  return new Date().toISOString().split("T")[0];
+  const d = new Date();
+  const year  = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day   = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 /**

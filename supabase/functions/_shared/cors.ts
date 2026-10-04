@@ -4,33 +4,62 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
-// Em produção, substitua "*" pelo domínio real da sua aplicação.
-// Ex: "https://seuapp.vercel.app"
-// O wildcard é necessário durante desenvolvimento local com supabase start.
+// Restringe as origens permitidas via variável de ambiente ALLOWED_ORIGINS
+// (lista separada por vírgula). Configure em: Supabase > Edge Functions > Secrets
+// Ex: ALLOWED_ORIGINS=https://saudeemsintoniaapp.com,https://www.saudeemsintoniaapp.com
+// Em desenvolvimento local (sem a env var), libera localhost para não travar o dev.
 
-export const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+const configuredOrigins = (Deno.env.get("ALLOWED_ORIGINS") ?? "")
+  .split(",")
+  .map((o) => o.trim())
+  .filter(Boolean);
 
-export function corsPreflightResponse(): Response {
-  return new Response(null, { status: 204, headers: CORS_HEADERS });
+const DEV_FALLBACK_ORIGINS = [
+  "http://localhost:5173",
+  "http://localhost:8080",
+  "http://127.0.0.1:5173",
+];
+
+const ALLOWED_ORIGINS = configuredOrigins.length > 0 ? configuredOrigins : DEV_FALLBACK_ORIGINS;
+
+function resolveOrigin(req: Request): string {
+  const origin = req.headers.get("Origin") ?? "";
+  if (ALLOWED_ORIGINS.includes(origin)) return origin;
+  // Sem env configurada (dev) e origem desconhecida: permite mas avisa nos logs
+  if (configuredOrigins.length === 0) return origin || DEV_FALLBACK_ORIGINS[0];
+  // Produção configurada e origem não reconhecida: nega de forma segura
+  return "null";
+}
+
+function buildCorsHeaders(req: Request): Record<string, string> {
+  return {
+    "Access-Control-Allow-Origin": resolveOrigin(req),
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Vary": "Origin",
+  };
+}
+
+export function corsPreflightResponse(req?: Request): Response {
+  const headers = req ? buildCorsHeaders(req) : { "Access-Control-Allow-Origin": ALLOWED_ORIGINS[0] };
+  return new Response(null, { status: 204, headers });
 }
 
 export function jsonResponse(
   body: unknown,
   status = 200,
-  extraHeaders: Record<string, string> = {}
+  extraHeaders: Record<string, string> = {},
+  req?: Request
 ): Response {
+  const corsHeaders = req ? buildCorsHeaders(req) : { "Access-Control-Allow-Origin": ALLOWED_ORIGINS[0] };
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...CORS_HEADERS, "Content-Type": "application/json", ...extraHeaders },
+    headers: { ...corsHeaders, "Content-Type": "application/json", ...extraHeaders },
   });
 }
 
-export function errorResponse(message: string, status = 400): Response {
-  return jsonResponse({ error: message }, status);
+export function errorResponse(message: string, status = 400, req?: Request): Response {
+  return jsonResponse({ error: message }, status, {}, req);
 }
 
 // ─── Autenticação ─────────────────────────────────────────────────────────────
@@ -44,7 +73,7 @@ export async function authenticateRequest(
 ): Promise<{ userId: string; supabase: ReturnType<typeof createClient> } | { error: Response }> {
   const authHeader = req.headers.get("Authorization");
   if (!authHeader?.startsWith("Bearer ")) {
-    return { error: errorResponse("Não autorizado", 401) };
+    return { error: errorResponse("Não autorizado", 401, req) };
   }
 
   const supabase = createClient(
@@ -58,7 +87,7 @@ export async function authenticateRequest(
   );
 
   if (error || !user) {
-    return { error: errorResponse("Não autorizado", 401) };
+    return { error: errorResponse("Não autorizado", 401, req) };
   }
 
   return { userId: user.id, supabase };

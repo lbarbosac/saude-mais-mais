@@ -29,17 +29,19 @@ const Friends = () => {
   const [amigos, setAmigos] = useState<Amigo[]>([]);
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchResults, setSearchResults] = useState<Array<{id:string;nome:string;nickname:string;avatar_url:string|null}>>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (user) {
-      loadAmigos();
-      loadPedidos();
-    }
+    if (!user) return;
+    let cancelled = false;
+    loadAmigos(cancelled);
+    loadPedidos(cancelled);
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
-  const loadAmigos = async () => {
+  const loadAmigos = async (cancelled = false) => {
     setLoading(true);
     // Get friendships where I'm either user_id or amigo_id and status is accepted
     const { data: friendships } = await supabase
@@ -80,7 +82,7 @@ const Friends = () => {
     setLoading(false);
   };
 
-  const loadPedidos = async () => {
+  const loadPedidos = async (cancelled = false) => {
     const { data } = await supabase
       .from("amizades")
       .select("id, user_id")

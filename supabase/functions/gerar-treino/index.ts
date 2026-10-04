@@ -1,125 +1,132 @@
+/**
+ * Edge Function: gerar-treino
+ *
+ * Gera um plano de treino personalizado via OpenAI e salva no banco.
+ *
+ * Variáveis de ambiente (Supabase > Edge Functions > Secrets):
+ *   OPENAI_API_KEY
+ */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import {
+  corsPreflightResponse,
+  jsonResponse,
+  errorResponse,
+  authenticateRequest,
+  checkRateLimit,
+} from "../_shared/cors.ts";
 
-const RATE_LIMIT = new Map<string, number[]>();
-const MAX_REQ = 5;
-const WINDOW_MS = 60_000;
+// ─── Handler ──────────────────────────────────────────────────────────────────
 
-function checkRateLimit(userId: string): boolean {
-  const now = Date.now();
-  const arr = (RATE_LIMIT.get(userId) || []).filter((t) => now - t < WINDOW_MS);
-  if (arr.length >= MAX_REQ) return false;
-  arr.push(now);
-  RATE_LIMIT.set(userId, arr);
-  return true;
-}
+serve(async (req) => {
+  if (req.method === "OPTIONS") return corsPreflightResponse(req);
 
-Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  // Autenticação via _shared — resolve o getClaims removido e o corsHeaders indefinido
+  const auth = await authenticateRequest(req);
+  if ("error" in auth) return auth.error;
+  const { userId, supabase } = auth;
+
+  // Rate limiting
+  if (!checkRateLimit(userId, 5, 60_000)) {
+    return errorResponse("Muitas requisições. Aguarde 1 minuto.", 429, req);
+  }
+
+  const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
+  if (!OPENAI_API_KEY) {
+    console.error("[gerar-treino] OPENAI_API_KEY não configurada");
+    return errorResponse("Serviço de IA não disponível.", 503, req);
+  }
 
   try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: "Não autorizado" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_ANON_KEY")!,
-      { global: { headers: { Authorization: authHeader } } }
-    );
-
-    const token = authHeader.replace("Bearer ", "");
-    const { data: claimsData } = await supabase.auth.getClaims(token);
-    const userId = claimsData?.claims?.sub;
-    if (!userId) {
-      return new Response(JSON.stringify({ error: "Não autorizado" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    if (!checkRateLimit(userId)) {
-      return new Response(JSON.stringify({ error: "Muitas requisições. Tente em 1 minuto." }), {
-        status: 429,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
+    // Lê preferência de descanso do body (opcional)
     let descansoPref: number | undefined;
     try {
       const body = await req.json();
-      if (body && typeof body.descanso_pref === "number") descansoPref = body.descanso_pref;
-    } catch (_) { /* no body */ }
+      if (body && typeof body.descanso_pref === "number") {
+        descansoPref = body.descanso_pref;
+      }
+    } catch { /* sem body — ok */ }
 
-    // Fetch context
-    const [perfilRes, treinoPerfilRes, checkinRes, habitosRes] = await Promise.all([
-      supabase.from("perfil_usuario").select("*").eq("user_id", userId).maybeSingle(),
-      supabase.from("treino_perfil").select("*").eq("user_id", userId).maybeSingle(),
-      supabase.from("checkin_diario").select("humor, energia").order("data", { ascending: false }).limit(7),
-      supabase.from("habitos").select("nome_habito").eq("ativo", true).limit(10),
+    // Busca dados do usuário em paralelo
+    const [perfilRes, treinoPerfilRes, checkinRes] = await Promise.all([
+      supabase
+        .from("perfil_usuario")
+        .select("idade, sexo, peso, altura, nivel_atividade")
+        .eq("user_id", userId)
+        .maybeSingle(),
+      supabase
+        .from("treino_perfil")
+        .select("objetivo, dias_semana, local_treino, nivel, grupo_foco, cardio, tempo_treino, limitacoes")
+        .eq("user_id", userId)
+        .maybeSingle(),
+      supabase
+        .from("checkin_diario")
+        .select("humor, energia")
+        .eq("user_id", userId)
+        .order("data", { ascending: false })
+        .limit(3),
     ]);
 
-    const perfil = perfilRes.data || {};
-    const treinoPerfil = treinoPerfilRes.data;
-
-    if (!treinoPerfil) {
-      return new Response(JSON.stringify({ error: "Configure seu perfil de treino primeiro." }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    if (!treinoPerfilRes.data) {
+      return errorResponse("Configure seu perfil de treino primeiro.", 400, req);
     }
 
-    const recentMood = checkinRes.data?.[0];
-    const habitNames = (habitosRes.data || []).map((h) => h.nome_habito).join(", ");
+    const perfil      = perfilRes.data      ?? {};
+    const treinoPerfil = treinoPerfilRes.data;
+    const recentMood  = checkinRes.data?.[0];
 
-    const prompt = `Você é um personal trainer experiente. Crie um plano de treino COMPLETO e personalizado.
+    // ── Prompt ────────────────────────────────────────────────────────────────
+
+    const prompt = `Você é um personal trainer experiente. Crie um plano de treino completo e personalizado.
 
 PERFIL DO USUÁRIO:
-- Idade: ${perfil.idade || "n/d"}, Sexo: ${perfil.sexo || "n/d"}
-- Peso: ${perfil.peso || "n/d"}kg, Altura: ${perfil.altura || "n/d"}m
-- Nível atividade: ${perfil.nivel_atividade || "n/d"}
+- Idade: ${perfil.idade ?? "não informado"}, Sexo: ${perfil.sexo ?? "não informado"}
+- Peso: ${perfil.peso ?? "não informado"} kg, Altura: ${perfil.altura ?? "não informado"} m
+- Nível de atividade: ${perfil.nivel_atividade ?? "não informado"}
 
 PREFERÊNCIAS DE TREINO:
 - Objetivo: ${treinoPerfil.objetivo}
-- Dias/semana: ${treinoPerfil.dias_semana}
+- Dias por semana: ${treinoPerfil.dias_semana}
 - Local: ${treinoPerfil.local_treino}
 - Nível: ${treinoPerfil.nivel}
-- Foco: ${treinoPerfil.grupo_foco}
+- Foco muscular: ${treinoPerfil.grupo_foco}
 - Cardio: ${treinoPerfil.cardio}
-- Tempo: ${treinoPerfil.tempo_treino} min
-- Limitações: ${treinoPerfil.limitacoes || "nenhuma"}
-- Descanso preferido pelo usuário entre séries: ${descansoPref ? descansoPref + "s (use como base, ajustando ±30s conforme exercício)" : "não informado — siga as faixas científicas abaixo"}
+- Tempo disponível: ${treinoPerfil.tempo_treino} min
+- Limitações físicas: ${treinoPerfil.limitacoes || "nenhuma"}
+- Descanso preferido entre séries: ${
+  descansoPref
+    ? `${descansoPref}s (use como base, ajuste ±30s conforme exercício)`
+    : "não informado — use as faixas científicas abaixo"
+}
 
-CONTEXTO ATUAL:
-- Humor recente: ${recentMood?.humor || "n/d"} / Energia: ${recentMood?.energia || "n/d"}
-- Hábitos ativos: ${habitNames || "nenhum"}
+CONTEXTO DO DIA:
+- Humor recente: ${recentMood?.humor ?? "não informado"}
+- Energia recente: ${recentMood?.energia ?? "não informado"}
 
-REGRAS (siga como personal trainer profissional):
-1. Crie ${treinoPerfil.dias_semana} treinos (1 por dia escolhido)
-2. Para cada treino: nome (ex "Treino A - Peito/Tríceps"), divisao, lista de 5-8 exercícios
-3. Cada exercício: nome, séries (3-5), repetições, descanso_seg, observacao curta de execução
-4. DESCANSO entre séries (siga ciência do treino — NUNCA menos que 60s):
-   - Objetivo "ganho_massa" / hipertrofia: 90-120s para isoladores, 120-180s para compostos pesados
-   - Objetivo "emagrecimento" / "condicionamento": 45-75s (circuitos/metabolic)
-   - Objetivo "saude_geral": 60-90s
-   - Nível "avancado" + compostos (agachamento, supino, terra, remada): 150-180s
-   - Nível "iniciante": adicione 15-30s a mais para recuperação adequada
-5. Repetições: hipertrofia 8-12, força 4-6, resistência 12-20, condicionamento 15-20
-6. Adapte exercícios ao local: ${treinoPerfil.local_treino}
-7. RESPEITE limitações: ${treinoPerfil.limitacoes || "nenhuma"}
-8. Se humor/energia baixos, reduza volume (não a técnica)
-9. Cardio (${treinoPerfil.cardio}): inclua se Leve/Moderado/Intenso, no fim do treino
+REGRAS:
+1. Crie exatamente ${treinoPerfil.dias_semana} treinos (1 por dia de treino)
+2. Nome do treino claro (ex: "Treino A — Peito e Tríceps")
+3. De 5 a 8 exercícios por treino
+4. Descanso entre séries (siga a ciência do treino — mínimo 60s):
+   - Hipertrofia: 90–120s isoladores, 120–180s compostos
+   - Emagrecimento/condicionamento: 45–75s
+   - Saúde geral: 60–90s
+   - Compostos pesados (agachamento, supino, terra, remada) + nível avançado: 150–180s
+   - Iniciante: adicione 15–30s extra para recuperação adequada
+5. Repetições: força 4–6, hipertrofia 8–12, resistência 12–20
+6. Adapte todos os exercícios ao local: ${treinoPerfil.local_treino}
+7. Respeite as limitações: ${treinoPerfil.limitacoes || "nenhuma"}
+8. Se humor ou energia baixos, reduza o volume (não a técnica)
+9. Inclua cardio ao final se preferência for leve, moderado ou intenso
 
 Responda APENAS via tool call.`;
+
+    // ── Chamada OpenAI com function calling ───────────────────────────────────
 
     const aiResp = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${Deno.env.get("OPENAI_API_KEY")}`,
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -130,7 +137,7 @@ Responda APENAS via tool call.`;
             type: "function",
             function: {
               name: "criar_plano_treino",
-              description: "Retorna um plano de treino estruturado",
+              description: "Retorna um plano de treino estruturado em JSON",
               parameters: {
                 type: "object",
                 properties: {
@@ -139,19 +146,19 @@ Responda APENAS via tool call.`;
                     items: {
                       type: "object",
                       properties: {
-                        nome: { type: "string" },
-                        divisao: { type: "string" },
+                        nome:       { type: "string" },
+                        divisao:    { type: "string" },
                         dia_semana: { type: "integer", description: "0=domingo, 1=segunda..." },
                         exercicios: {
                           type: "array",
                           items: {
                             type: "object",
                             properties: {
-                              nome: { type: "string" },
-                              series: { type: "integer" },
-                              repeticoes: { type: "string" },
+                              nome:         { type: "string" },
+                              series:       { type: "integer" },
+                              repeticoes:   { type: "string" },
                               descanso_seg: { type: "integer" },
-                              observacao: { type: "string" },
+                              observacao:   { type: "string" },
                             },
                             required: ["nome", "series", "repeticoes", "descanso_seg"],
                           },
@@ -172,98 +179,79 @@ Responda APENAS via tool call.`;
 
     if (!aiResp.ok) {
       const txt = await aiResp.text();
-      console.error("AI error:", aiResp.status, txt);
-      if (aiResp.status === 429) {
-        return new Response(JSON.stringify({ error: "Limite de IA atingido. Tente novamente em alguns minutos." }), {
-          status: 429,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      if (aiResp.status === 402) {
-        return new Response(JSON.stringify({ error: "Créditos de IA esgotados." }), {
-          status: 402,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      return new Response(JSON.stringify({ error: "Erro na IA" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      console.error("[gerar-treino] OpenAI error:", aiResp.status, txt);
+      if (aiResp.status === 429) return errorResponse("Limite de IA atingido. Tente em alguns minutos.", 429, req);
+      if (aiResp.status === 402) return errorResponse("Créditos de IA esgotados.", 402, req);
+      return errorResponse("Erro ao gerar treino com IA.", 502, req);
     }
 
-    const aiData = await aiResp.json();
+    const aiData  = await aiResp.json();
     const toolCall = aiData.choices?.[0]?.message?.tool_calls?.[0];
-    if (!toolCall) {
-      return new Response(JSON.stringify({ error: "Resposta inválida da IA" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    if (!toolCall) return errorResponse("Resposta inválida da IA.", 500, req);
 
-    const args = JSON.parse(toolCall.function.arguments);
-    const treinos = args.treinos || [];
+    const { treinos = [] } = JSON.parse(toolCall.function.arguments);
 
-    // Delete previous AI-generated treinos
+    // ── Salva no banco ────────────────────────────────────────────────────────
+
+    // Remove treinos gerados por IA anteriores
     const { data: oldTreinos } = await supabase
       .from("treinos")
       .select("id")
       .eq("user_id", userId)
       .eq("gerado_por_ia", true);
+
     if (oldTreinos && oldTreinos.length > 0) {
-      const ids = oldTreinos.map((t) => t.id);
+      const ids = oldTreinos.map((t: { id: string }) => t.id);
       await supabase.from("treino_exercicios").delete().in("treino_id", ids);
       await supabase.from("treinos").delete().in("id", ids);
     }
 
-    // Insert new treinos
+    // Insere os novos treinos
+    let count = 0;
     for (let i = 0; i < treinos.length; i++) {
       const t = treinos[i];
+
       const { data: inserted, error: insertErr } = await supabase
         .from("treinos")
         .insert({
-          user_id: userId,
-          nome: t.nome,
-          divisao: t.divisao,
-          dia_semana: t.dia_semana,
-          ordem: i,
+          user_id:       userId,
+          nome:          t.nome,
+          divisao:       t.divisao,
+          dia_semana:    t.dia_semana,
+          ordem:         i,
           gerado_por_ia: true,
         })
         .select("id")
         .single();
 
-      if (insertErr || !inserted) continue;
+      if (insertErr || !inserted) {
+        console.error("[gerar-treino] Insert treino error:", insertErr);
+        continue;
+      }
 
-      const exercicios = (t.exercicios || []).map((e: any, idx: number) => ({
-        treino_id: inserted.id,
-        user_id: userId,
-        nome: e.nome,
-        series: e.series || 3,
-        repeticoes: e.repeticoes || "10-12",
-        descanso_seg: e.descanso_seg || 60,
-        observacao: e.observacao || null,
-        ordem: idx,
-      }));
+      const exercicios = (t.exercicios ?? []).map(
+        (e: Record<string, unknown>, idx: number) => ({
+          treino_id:    inserted.id,
+          user_id:      userId,
+          nome:         String(e.nome ?? ""),
+          series:       Number(e.series) || 3,
+          repeticoes:   String(e.repeticoes ?? "10–12"),
+          descanso_seg: Number(e.descanso_seg) || 90,
+          observacao:   e.observacao ? String(e.observacao) : null,
+          ordem:        idx,
+        })
+      );
 
       if (exercicios.length > 0) {
         await supabase.from("treino_exercicios").insert(exercicios);
       }
+
+      count++;
     }
 
-    await supabase.from("audit_log").insert({
-      user_id: userId,
-      action: "gerar_treino",
-      resource: "treinos",
-      details: { count: treinos.length },
-    });
-
-    return new Response(JSON.stringify({ success: true, count: treinos.length }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonResponse({ success: true, count }, 200, {}, req);
   } catch (err) {
-    console.error("Error:", err);
-    return new Response(JSON.stringify({ error: String(err) }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    console.error("[gerar-treino] Unexpected error:", err);
+    return errorResponse("Erro interno ao gerar treino.", 500, req);
   }
 });

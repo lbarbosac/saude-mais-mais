@@ -2,13 +2,34 @@
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Saúde em Sintonia</title>
-    <meta name="description" content="Seu caminho para uma vida mais saudável e equilibrada." />
+    <meta name="description" content="Seu companheiro diário de saúde e bem-estar." />
     <meta name="author" content="Saúde em Sintonia" />
+
+    <!-- PWA -->
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#4a90d9" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Saúde+" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+
+    <!-- Open Graph -->
     <meta property="og:type" content="website" />
     <meta property="og:title" content="Saúde em Sintonia" />
-    <meta property="og:description" content="Seu caminho para uma vida mais saudável e equilibrada." />
+    <meta property="og:description" content="Seu companheiro diário de saúde e bem-estar." />
+    <meta property="og:image" content="/icons/icon-512.png" />
+  <script>
+    // Apply theme before React renders to prevent flash
+    (function() {
+      var theme = localStorage.getItem('saude-theme');
+      if (theme === 'escuro' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+        document.documentElement.classList.add('dark');
+      }
+    })();
+  </script>
   </head>
   <body>
     <div id="root"></div>

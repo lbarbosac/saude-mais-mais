@@ -12,6 +12,7 @@ import {
   CartesianGrid,
 } from "recharts";
 import { supabase } from "@/lib/supabase/client";
+import { getDailySeed, seededShuffle } from "@/lib/utils/date";
 import { useAuth } from "@/contexts/AuthContext";
 
 const HABITS_PER_DAY = 6;
@@ -26,34 +27,12 @@ const valueToMood: Record<number, { label: string; icon: React.ElementType }> = 
 
 type FilterType = "semana" | "mes" | "tudo";
 
-// Same deterministic seed/shuffle used in Habits.tsx so we can replicate the
-// 6 habits chosen for any past day.
-const getDailySeed = (dateStr: string, userId: string): number => {
-  let hash = 0;
-  const seed = dateStr + userId;
-  for (let i = 0; i < seed.length; i++) {
-    hash = ((hash << 5) - hash + seed.charCodeAt(i)) | 0;
-  }
-  return Math.abs(hash);
-};
-
-const seededShuffle = <T,>(arr: T[], seed: number): T[] => {
-  const result = [...arr];
-  let s = seed;
-  for (let i = result.length - 1; i > 0; i--) {
-    s = (s * 1103515245 + 12345) & 0x7fffffff;
-    const j = s % (i + 1);
-    [result[i], result[j]] = [result[j], result[i]];
-  }
-  return result;
-};
-
-const CustomMoodTooltip = ({ active, payload }: any) => {
+const CustomMoodTooltip = ({ active, payload }: { active?: boolean; payload?: Array<{ value?: number; payload?: { date?: string } }> }) => {
   if (!active || !payload?.length) return null;
-  const value = payload[0]?.value || 0;
-  const mood = valueToMood[value] || valueToMood[0];
+  const value = payload[0]?.value ?? 0;
+  const mood = valueToMood[value] ?? valueToMood[0];
   const IconComp = mood.icon;
-  const date = payload[0]?.payload?.date || "";
+  const date = payload[0]?.payload?.date ?? "";
   return (
     <div className="rounded-xl border border-border bg-card/95 px-3 py-2 shadow-elevated backdrop-blur text-xs">
       <p className="text-muted-foreground mb-1">{date}</p>
@@ -65,11 +44,11 @@ const CustomMoodTooltip = ({ active, payload }: any) => {
   );
 };
 
-const CustomHabitTooltip = ({ active, payload }: any) => {
+const CustomHabitTooltip = ({ active, payload }: { active?: boolean; payload?: Array<{ value?: number; payload?: { date?: string; target?: number } }> }) => {
   if (!active || !payload?.length) return null;
-  const value = payload[0]?.value || 0;
-  const target = payload[0]?.payload?.target || HABITS_PER_DAY;
-  const date = payload[0]?.payload?.date || "";
+  const value = payload[0]?.value ?? 0;
+  const target = payload[0]?.payload?.target ?? HABITS_PER_DAY;
+  const date = payload[0]?.payload?.date ?? "";
   return (
     <div className="rounded-xl border border-border bg-card/95 px-3 py-2 shadow-elevated backdrop-blur text-xs">
       <p className="text-muted-foreground mb-1">{date}</p>
@@ -95,7 +74,13 @@ const Progress = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (user) loadData();
+    if (!user) return;
+    let cancelled = false;
+    loadData(cancelled).finally(() => {
+      if (!cancelled) setLoading(false);
+    });
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, filter]);
 
   const getDatesForFilter = (): Date[] => {
@@ -117,8 +102,8 @@ const Progress = () => {
     return `${d.getDate()}/${d.getMonth() + 1}`;
   };
 
-  const loadData = async () => {
-    setLoading(true);
+  const loadData = async (cancelled = false) => {
+    if (!cancelled) setLoading(true);
     const dates = getDatesForFilter();
     const startDate = dates[0].toISOString().split("T")[0];
     const endDate = dates[dates.length - 1].toISOString().split("T")[0];
@@ -176,7 +161,7 @@ const Progress = () => {
       return Math.min(count, dailyTarget);
     };
 
-    const habitChartData: any[] = [];
+    const habitChartData: { day: string; date: string; completed: number; target: number }[] = [];
     let sumCompleted = 0;
     let totalDailyTarget = 0;
 
@@ -241,7 +226,7 @@ const Progress = () => {
     const hadStreakBefore = isDayComplete(dbyStr);
     setCanRestore(!todayDone && yesterdayIncomplete && hadStreakBefore && remaining > 0);
 
-    setLoading(false);
+    if (!cancelled) setLoading(false);
   };
 
   const restoreStreak = async () => {
@@ -298,24 +283,24 @@ const Progress = () => {
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col gap-2 rounded-2xl bg-wellness-peach p-4">
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col gap-2 rounded-2xl bg-wellness-peach p-4 dark:bg-orange-950/40 dark:border dark:border-orange-800/30">
           <div className="flex items-center gap-2">
-            <Flame className="h-5 w-5 text-foreground/70" />
-            <span className="text-xs font-medium text-muted-foreground">Sequência atual</span>
+            <Flame className="h-5 w-5 text-orange-600 dark:text-orange-400" aria-hidden />
+            <span className="text-xs font-semibold text-orange-700 dark:text-orange-300">Sequência atual</span>
           </div>
-          <span className="text-2xl font-bold text-foreground">{streak} {streak === 1 ? "dia" : "dias"}</span>
-          <p className="text-[11px] text-muted-foreground leading-snug flex items-start gap-1">
-            <Sparkles className="h-3 w-3 mt-0.5 shrink-0 text-foreground/60" />
+          <span className="text-2xl font-bold text-orange-900 dark:text-orange-100">{streak} {streak === 1 ? "dia" : "dias"}</span>
+          <p className="text-[11px] text-orange-700/80 dark:text-orange-300/80 leading-snug flex items-start gap-1">
+            <Sparkles className="h-3 w-3 mt-0.5 shrink-0 text-orange-600/70 dark:text-orange-400/70" aria-hidden />
             Complete seus hábitos diários para manter sua sequência.
           </p>
         </motion.div>
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08 }} className="flex flex-col gap-2 rounded-2xl bg-wellness-mint p-4">
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08 }} className="flex flex-col gap-2 rounded-2xl bg-wellness-mint p-4 dark:bg-emerald-950/40 dark:border dark:border-emerald-800/30">
           <div className="flex items-center gap-2">
-            <TrendingUp className="h-5 w-5 text-foreground/70" />
-            <span className="text-xs font-medium text-muted-foreground">Hábitos completados</span>
+            <TrendingUp className="h-5 w-5 text-emerald-600 dark:text-emerald-400" aria-hidden />
+            <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">Hábitos completados</span>
           </div>
-          <span className="text-2xl font-bold text-foreground">{percentage}%</span>
-          <span className="text-[11px] text-muted-foreground">{totalHabitos} de {totalPossible} hábitos do período</span>
+          <span className="text-2xl font-bold text-emerald-900 dark:text-emerald-100">{percentage}%</span>
+          <span className="text-[11px] text-emerald-700/80 dark:text-emerald-300/80">{totalHabitos} de {totalPossible} hábitos do período</span>
         </motion.div>
       </div>
 

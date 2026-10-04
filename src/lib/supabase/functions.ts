@@ -2,6 +2,7 @@ import { supabase } from "@/lib/supabase/client";
 
 interface CallFunctionOptions {
   body?: Record<string, unknown>;
+  timeoutMs?: number;
 }
 
 interface CallFunctionResult<T> {
@@ -11,7 +12,7 @@ interface CallFunctionResult<T> {
 
 /**
  * Chama uma Supabase Edge Function autenticada.
- * Centraliza: token de sessão, URL, tratamento de erros HTTP.
+ * Centraliza: token de sessão, URL, tratamento de erros HTTP e timeout.
  */
 export async function callEdgeFunction<T = unknown>(
   functionName: string,
@@ -25,6 +26,10 @@ export async function callEdgeFunction<T = unknown>(
   }
 
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+  const timeoutMs = options.timeoutMs ?? 30_000; // 30s default
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const response = await fetch(`${supabaseUrl}/functions/v1/${functionName}`, {
@@ -34,7 +39,10 @@ export async function callEdgeFunction<T = unknown>(
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(options.body ?? {}),
+      signal: controller.signal,
     });
+
+    clearTimeout(timeoutId);
 
     const json = await response.json();
 
@@ -44,6 +52,10 @@ export async function callEdgeFunction<T = unknown>(
 
     return { data: json as T, error: null };
   } catch (err) {
+    clearTimeout(timeoutId);
+    if (err instanceof Error && err.name === "AbortError") {
+      return { data: null, error: "A requisição demorou muito. Tente novamente." };
+    }
     const message = err instanceof Error ? err.message : "Erro de rede desconhecido.";
     return { data: null, error: message };
   }

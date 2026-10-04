@@ -1,345 +1,434 @@
 import { useState, type FormEvent } from "react";
-import { motion } from "framer-motion";
-import { Heart, Mail, Lock, User, Eye, EyeOff, ArrowLeft, Loader2 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Heart, Mail, Lock, User, Eye, EyeOff, Loader2, ShieldCheck, ArrowLeft } from "lucide-react";
 import { Navigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/hooks/use-toast";
 
-// ─── Tipos ───────────────────────────────────────────────────────────────────
+// ─── Tipos ────────────────────────────────────────────────────────────────────
+type AuthMode = "login" | "signup" | "forgot";
+interface FormState { name: string; email: string; password: string; }
 
-type AuthMode = "welcome" | "login" | "signup";
+// ─── Domínios de e-mail ───────────────────────────────────────────────────────
+const EMAIL_DOMAINS = [
+  "@gmail.com", "@hotmail.com", "@outlook.com", "@yahoo.com",
+  "@icloud.com", "@live.com", "@uol.com.br", "@bol.com.br",
+];
 
-interface FormState {
-  name: string;
-  email: string;
-  password: string;
+function getEmailSuggestions(value: string): string[] {
+  if (!value || value.includes("@")) return [];
+  return EMAIL_DOMAINS.map((d) => value + d);
 }
 
-// ─── Validação simples (sem biblioteca externa) ───────────────────────────────
-
-function validateEmail(email: string): boolean {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+// ─── Força da senha ───────────────────────────────────────────────────────────
+function getPasswordStrength(p: string) {
+  if (!p) return { score: 0, label: "", color: "" };
+  let score = 0;
+  if (p.length >= 8)           score++;
+  if (p.length >= 12)          score++;
+  if (/[A-Z]/.test(p))         score++;
+  if (/[0-9]/.test(p))         score++;
+  if (/[^A-Za-z0-9]/.test(p)) score++;
+  if (score <= 1) return { score, label: "Fraca",    color: "bg-red-400" };
+  if (score <= 2) return { score, label: "Razoável", color: "bg-yellow-400" };
+  if (score <= 3) return { score, label: "Boa",      color: "bg-blue-400" };
+  return              { score, label: "Forte",    color: "bg-green-400" };
 }
 
-function validateSignupForm(form: FormState): string | null {
-  if (!form.name.trim()) return "Informe seu nome.";
-  if (!validateEmail(form.email)) return "E-mail inválido.";
-  if (form.password.length < 8) return "A senha deve ter pelo menos 8 caracteres.";
+// ─── Validação ────────────────────────────────────────────────────────────────
+function isValidEmail(e: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.trim());
+}
+function validateSignup(f: FormState): string | null {
+  if (!f.name.trim() || f.name.trim().length < 2) return "Informe seu nome (mínimo 2 caracteres).";
+  if (!isValidEmail(f.email))  return "E-mail inválido.";
+  if (f.password.length < 8)   return "A senha deve ter pelo menos 8 caracteres.";
+  return null;
+}
+function validateLogin(f: Pick<FormState, "email" | "password">): string | null {
+  if (!isValidEmail(f.email)) return "E-mail inválido.";
+  if (!f.password)             return "Informe sua senha.";
   return null;
 }
 
-function validateLoginForm(form: Pick<FormState, "email" | "password">): string | null {
-  if (!validateEmail(form.email)) return "E-mail inválido.";
-  if (!form.password) return "Informe sua senha.";
-  return null;
-}
-
-// ─── Componente ───────────────────────────────────────────────────────────────
-
-const FADE_UP = {
-  hidden: { opacity: 0, y: 20 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.4 } },
+// ─── Animação ─────────────────────────────────────────────────────────────────
+const FADE = {
+  hidden: { opacity: 0, y: 14 },
+  show:   { opacity: 1, y: 0, transition: { duration: 0.28, ease: "easeOut" } },
 };
 
+// ─── Componente ───────────────────────────────────────────────────────────────
 export default function LoginPage() {
   const { user, isLoading: authLoading } = useAuth();
 
-  const [mode, setMode] = useState<AuthMode>("welcome");
-  const [form, setForm] = useState<FormState>({ name: "", email: "", password: "" });
-  const [showPassword, setShowPassword] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [mode, setMode]           = useState<AuthMode>("login");
+  const [form, setForm]           = useState<FormState>({ name: "", email: "", password: "" });
+  const [showPass, setShowPass]   = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [showSug, setShowSug]     = useState(false);
+  const [resetSent, setResetSent] = useState(false);
+  const [consentAccepted, setConsentAccepted] = useState(false);
 
-  // Redireciona se já autenticado
-  if (!authLoading && user) {
-    return <Navigate to="/" replace />;
+  if (!authLoading && user) return <Navigate to="/" replace />;
+
+  const isSignup  = mode === "signup";
+  const isForgot  = mode === "forgot";
+  const strength  = isSignup ? getPasswordStrength(form.password) : null;
+
+  function onFieldChange(field: keyof FormState) {
+    return (e: React.ChangeEvent<HTMLInputElement>) => {
+      const v = e.target.value;
+      setForm((p) => ({ ...p, [field]: v }));
+      if (field === "email") {
+        const s = getEmailSuggestions(v);
+        setSuggestions(s);
+        setShowSug(s.length > 0);
+      }
+    };
   }
 
-  function updateField(field: keyof FormState) {
-    return (e: React.ChangeEvent<HTMLInputElement>) =>
-      setForm((prev) => ({ ...prev, [field]: e.target.value }));
+  function switchMode(next: AuthMode) {
+    setMode(next);
+    setForm({ name: "", email: form.email, password: "" });
+    setShowSug(false);
+    setShowPass(false);
+    setResetSent(false);
+    setConsentAccepted(false);
   }
 
-  async function handleGoogleSignIn() {
-    setIsSubmitting(true);
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: window.location.origin },
-    });
-
-    if (error) {
-      toast({
-        title: "Erro ao entrar com Google",
-        description: error.message,
-        variant: "destructive",
-      });
-      setIsSubmitting(false);
-    }
-    // Se OK, o Supabase redireciona — não precisa de setIsSubmitting(false)
-  }
-
+  // ── Cadastro ──────────────────────────────────────────────────────────────
   async function handleSignUp(e: FormEvent) {
     e.preventDefault();
-    const validationError = validateSignupForm(form);
-    if (validationError) {
-      toast({ title: validationError, variant: "destructive" });
+    if (!consentAccepted) {
+      toast({ title: "Aceite os Termos de Uso e a Política de Privacidade para continuar.", variant: "destructive" });
       return;
     }
+    const err = validateSignup(form);
+    if (err) { toast({ title: err, variant: "destructive" }); return; }
 
-    setIsSubmitting(true);
+    setSubmitting(true);
     const { error } = await supabase.auth.signUp({
-      email: form.email.trim(),
+      email: form.email.trim().toLowerCase(),
       password: form.password,
       options: {
-        data: { nome: form.name.trim(), full_name: form.name.trim() },
-        emailRedirectTo: window.location.origin,
+        data: {
+          nome: form.name.trim(),
+          full_name: form.name.trim(),
+          consentimento_lgpd: new Date().toISOString(),
+          versao_termos: "1.0",
+        },
       },
     });
-    setIsSubmitting(false);
 
     if (error) {
-      toast({ title: "Erro ao criar conta", description: error.message, variant: "destructive" });
-    } else {
-      toast({
-        title: "Conta criada!",
-        description: "Verifique seu e-mail para confirmar o cadastro antes de entrar.",
-      });
-      setMode("login");
-    }
-  }
-
-  async function handleSignIn(e: FormEvent) {
-    e.preventDefault();
-    const validationError = validateLoginForm(form);
-    if (validationError) {
-      toast({ title: validationError, variant: "destructive" });
+      const msg = error.message.toLowerCase().includes("already registered")
+        ? "Este e-mail já está cadastrado. Tente entrar."
+        : error.message;
+      toast({ title: "Erro ao criar conta", description: msg, variant: "destructive" });
+      setSubmitting(false);
       return;
     }
 
-    setIsSubmitting(true);
-    const { error } = await supabase.auth.signInWithPassword({
-      email: form.email.trim(),
+    // Login automático após cadastro
+    const { data: loginData } = await supabase.auth.signInWithPassword({
+      email: form.email.trim().toLowerCase(),
       password: form.password,
     });
-    setIsSubmitting(false);
 
-    if (error) {
-      const msg = error.message.toLowerCase().includes("email not confirmed")
-        ? "E-mail não confirmado. Verifique sua caixa de entrada."
-        : error.message.toLowerCase().includes("invalid login")
-        ? "E-mail ou senha incorretos."
-        : error.message;
-
-      toast({ title: "Erro ao entrar", description: msg, variant: "destructive" });
+    // Salva registro de consentimento LGPD
+    if (loginData?.user) {
+      supabase.from("consentimento_usuario").insert({
+        user_id: loginData.user.id,
+        versao_termos: "1.0",
+        user_agent: navigator.userAgent.slice(0, 200),
+      }).then(); // fire-and-forget
     }
-    // Se OK, o onAuthStateChange cuida do redirecionamento
+
+    setSubmitting(false);
   }
 
-  // ── Tela de boas-vindas ───────────────────────────────────────────────────
+  // ── Login ─────────────────────────────────────────────────────────────────
+  async function handleSignIn(e: FormEvent) {
+    e.preventDefault();
+    const err = validateLogin(form);
+    if (err) { toast({ title: err, variant: "destructive" }); return; }
 
-  if (mode === "welcome") {
+    setSubmitting(true);
+    const { error } = await supabase.auth.signInWithPassword({
+      email: form.email.trim().toLowerCase(),
+      password: form.password,
+    });
+    setSubmitting(false);
+
+    if (error) {
+      const isWrong = error.message.toLowerCase().includes("invalid login credentials")
+        || error.message.toLowerCase().includes("invalid credentials");
+      toast({
+        title: "Erro ao entrar",
+        description: isWrong ? "E-mail ou senha incorretos." : error.message,
+        variant: "destructive",
+      });
+    }
+  }
+
+  // ── Recuperação de senha ──────────────────────────────────────────────────
+  async function handleForgot(e: FormEvent) {
+    e.preventDefault();
+    if (!isValidEmail(form.email)) {
+      toast({ title: "Informe um e-mail válido.", variant: "destructive" });
+      return;
+    }
+
+    setSubmitting(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(
+      form.email.trim().toLowerCase(),
+      { redirectTo: `${window.location.origin}/redefinir-senha` }
+    );
+    setSubmitting(false);
+
+    if (error) {
+      toast({ title: "Erro ao enviar e-mail", description: error.message, variant: "destructive" });
+    } else {
+      setResetSent(true);
+    }
+  }
+
+  // ── Render: Recuperação de senha ──────────────────────────────────────────
+  if (isForgot) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center bg-background px-6">
-        <motion.div
-          variants={FADE_UP}
-          initial="hidden"
-          animate="show"
-          className="flex w-full max-w-sm flex-col items-center gap-8"
-        >
+      <div className="flex min-h-screen flex-col items-center justify-center bg-background px-6 py-12">
+        <motion.div variants={FADE} initial="hidden" animate="show"
+          className="flex w-full max-w-sm flex-col gap-6">
+
+          <button onClick={() => switchMode("login")}
+            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground self-start">
+            <ArrowLeft className="h-4 w-4" aria-hidden />
+            Voltar
+          </button>
+
           <div className="flex flex-col items-center gap-3 text-center">
-            <div className="flex h-20 w-20 items-center justify-center rounded-3xl gradient-hero shadow-elevated">
-              <Heart className="h-10 w-10 text-primary-foreground" aria-hidden />
+            <div className="flex h-16 w-16 items-center justify-center rounded-3xl gradient-hero shadow-elevated">
+              <Heart className="h-8 w-8 text-primary-foreground" aria-hidden />
             </div>
-            <h1 className="text-3xl font-bold tracking-tight text-foreground">
-              Saúde<span className="text-primary">++</span>
-            </h1>
-            <p className="text-muted-foreground">
-              Seu caminho para uma vida mais saudável e equilibrada.
-            </p>
+            <div>
+              <h1 className="text-2xl font-bold text-foreground">Recuperar senha</h1>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Enviaremos um link para você criar uma nova senha
+              </p>
+            </div>
           </div>
 
-          <div className="flex w-full flex-col gap-3">
-            <button
-              onClick={handleGoogleSignIn}
-              disabled={isSubmitting}
-              aria-label="Entrar com Google"
-              className="flex w-full items-center justify-center gap-3 rounded-2xl border border-border bg-card px-6 py-4 font-medium shadow-card transition-all hover:shadow-soft disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {isSubmitting ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
-              ) : (
-                <GoogleIcon />
-              )}
-              Continuar com Google
-            </button>
-
-            <button
-              onClick={() => setMode("signup")}
-              className="w-full rounded-2xl gradient-calm px-6 py-4 font-semibold text-primary-foreground shadow-soft transition-all hover:shadow-elevated"
-            >
-              Criar conta com e-mail
-            </button>
-
-            <button
-              onClick={() => setMode("login")}
-              className="w-full rounded-2xl border border-border bg-card px-6 py-4 font-medium text-foreground transition-all hover:bg-muted"
-            >
-              Já tenho conta
-            </button>
-          </div>
-
-          <p className="text-center text-xs text-muted-foreground">
-            Ao continuar, você concorda com nossos{" "}
-            <a href="/termos" className="underline hover:text-foreground">
-              Termos de Uso
-            </a>{" "}
-            e{" "}
-            <a href="/privacidade" className="underline hover:text-foreground">
-              Política de Privacidade
-            </a>
-            .
-          </p>
+          {resetSent ? (
+            <div className="rounded-2xl border border-border bg-card p-6 text-center">
+              <p className="font-semibold text-foreground">E-mail enviado!</p>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Verifique sua caixa de entrada em <strong>{form.email}</strong> e siga as instruções para redefinir sua senha.
+              </p>
+              <button onClick={() => switchMode("login")}
+                className="mt-4 text-sm font-medium text-primary underline-offset-4 hover:underline">
+                Voltar para o login
+              </button>
+            </div>
+          ) : (
+            <form onSubmit={handleForgot} noValidate className="flex flex-col gap-3">
+              <div className="relative">
+                <Mail className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+                <input
+                  type="email"
+                  value={form.email}
+                  onChange={onFieldChange("email")}
+                  placeholder="seu@email.com"
+                  autoComplete="email"
+                  required
+                  maxLength={254}
+                  aria-label="E-mail para recuperação"
+                  inputMode="email"
+                  className="input-modern-icon"
+                />
+              </div>
+              <button type="submit" disabled={submitting}
+                className="flex w-full items-center justify-center gap-2 rounded-2xl gradient-calm py-4 font-semibold text-primary-foreground shadow-soft transition-all hover:shadow-elevated disabled:opacity-60">
+                {submitting && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
+                {submitting ? "Enviando..." : "Enviar link de recuperação"}
+              </button>
+            </form>
+          )}
         </motion.div>
       </div>
     );
   }
 
-  // ── Formulários de login/cadastro ─────────────────────────────────────────
-
-  const isSignup = mode === "signup";
-  const handleSubmit = isSignup ? handleSignUp : handleSignIn;
-
+  // ── Render: Login / Cadastro ──────────────────────────────────────────────
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-background px-6">
-      <motion.div
-        variants={FADE_UP}
-        initial="hidden"
-        animate="show"
-        className="flex w-full max-w-sm flex-col gap-6"
-      >
-        <button
-          onClick={() => setMode("welcome")}
-          className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
-          aria-label="Voltar"
-        >
-          <ArrowLeft className="h-4 w-4" aria-hidden />
-          Voltar
-        </button>
+    <div className="flex min-h-screen flex-col items-center justify-center bg-background px-6 py-12">
+      <AnimatePresence mode="wait">
+        <motion.div key={mode} variants={FADE} initial="hidden" animate="show"
+          className="flex w-full max-w-sm flex-col gap-6">
 
-        <div className="flex flex-col items-center gap-2 text-center">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl gradient-hero shadow-soft">
-            <Heart className="h-7 w-7 text-primary-foreground" aria-hidden />
-          </div>
-          <h1 className="text-2xl font-bold text-foreground">
-            {isSignup ? "Criar conta" : "Bem-vindo de volta"}
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            {isSignup ? "Preencha seus dados para começar" : "Entre com seu e-mail e senha"}
-          </p>
-        </div>
-
-        <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-3">
-          {isSignup && (
-            <div className="relative">
-              <User className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-              <input
-                type="text"
-                value={form.name}
-                onChange={updateField("name")}
-                placeholder="Seu nome"
-                autoComplete="name"
-                required
-                aria-label="Nome"
-                className="w-full rounded-2xl border border-border bg-card py-4 pl-11 pr-4 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-              />
+          {/* Logo */}
+          <div className="flex flex-col items-center gap-3 text-center">
+            <div className="flex h-16 w-16 items-center justify-center rounded-3xl gradient-hero shadow-elevated">
+              <Heart className="h-8 w-8 text-primary-foreground" aria-hidden />
             </div>
-          )}
-
-          <div className="relative">
-            <Mail className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-            <input
-              type="email"
-              value={form.email}
-              onChange={updateField("email")}
-              placeholder="Seu e-mail"
-              autoComplete="email"
-              required
-              aria-label="E-mail"
-              className="w-full rounded-2xl border border-border bg-card py-4 pl-11 pr-4 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-            />
+            <div>
+              <h1 className="text-2xl font-bold text-foreground">
+                {isSignup ? "Criar sua conta" : "Bem-vindo de volta"}
+              </h1>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {isSignup ? "Preencha seus dados para começar" : "Entre com seu e-mail e senha"}
+              </p>
+            </div>
           </div>
 
-          <div className="relative">
-            <Lock className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-            <input
-              type={showPassword ? "text" : "password"}
-              value={form.password}
-              onChange={updateField("password")}
-              placeholder={isSignup ? "Mínimo 8 caracteres" : "Sua senha"}
-              autoComplete={isSignup ? "new-password" : "current-password"}
-              required
-              aria-label="Senha"
-              className="w-full rounded-2xl border border-border bg-card py-4 pl-11 pr-11 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-            />
-            <button
-              type="button"
-              onClick={() => setShowPassword((v) => !v)}
-              aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
-              className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-            >
-              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+          {/* Formulário */}
+          <form onSubmit={isSignup ? handleSignUp : handleSignIn} noValidate
+            className="flex flex-col gap-3">
+
+            {/* Nome (só no cadastro) */}
+            {isSignup && (
+              <div className="relative">
+                <User className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+                <input type="text" value={form.name} onChange={onFieldChange("name")}
+                  placeholder="Seu nome completo" autoComplete="name"
+                  required maxLength={100} aria-label="Nome completo"
+                  className="input-modern-icon" />
+              </div>
+            )}
+
+            {/* E-mail com sugestões */}
+            <div className="relative">
+              <Mail className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+              <input type="email" value={form.email} onChange={onFieldChange("email")}
+                onFocus={() => suggestions.length > 0 && setShowSug(true)}
+                onBlur={() => setTimeout(() => setShowSug(false), 150)}
+                placeholder="seu@email.com" autoComplete="email"
+                required maxLength={254} aria-label="E-mail"
+                aria-autocomplete="list" aria-expanded={showSug} inputMode="email"
+                className="input-modern-icon" />
+
+              <AnimatePresence>
+                {showSug && (
+                  <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.12 }}
+                    role="listbox" aria-label="Sugestões de e-mail"
+                    className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-2xl border border-border bg-card shadow-elevated">
+                    {suggestions.map((s) => (
+                      <button key={s} type="button" role="option" aria-selected={false}
+                        onMouseDown={() => { setForm((p) => ({ ...p, email: s })); setShowSug(false); }}
+                        className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition-colors hover:bg-muted">
+                        <Mail className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                        <span className="text-foreground">{s}</span>
+                      </button>
+                    ))}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            {/* Senha */}
+            <div className="flex flex-col gap-2">
+              <div className="relative">
+                <Lock className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+                <input type={showPass ? "text" : "password"} value={form.password}
+                  onChange={onFieldChange("password")}
+                  placeholder={isSignup ? "Mínimo 8 caracteres" : "Sua senha"}
+                  autoComplete={isSignup ? "new-password" : "current-password"}
+                  required maxLength={128} aria-label="Senha"
+                  className="input-modern-icon pr-12" />
+                <button type="button" onClick={() => setShowPass((v) => !v)}
+                  aria-label={showPass ? "Ocultar senha" : "Mostrar senha"}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground">
+                  {showPass ? <EyeOff className="h-4 w-4" aria-hidden /> : <Eye className="h-4 w-4" aria-hidden />}
+                </button>
+              </div>
+
+              {/* Força da senha */}
+              {isSignup && form.password.length > 0 && strength && (
+                <div className="flex flex-col gap-1.5 px-1">
+                  <div className="flex h-1.5 gap-1">
+                    {[1, 2, 3, 4].map((i) => (
+                      <div key={i} className={[
+                        "h-full flex-1 rounded-full transition-all duration-300",
+                        strength.score >= i ? strength.color : "bg-muted",
+                      ].join(" ")} />
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Senha: <span className="font-medium text-foreground">{strength.label}</span>
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Consentimento LGPD (só no cadastro) */}
+            {isSignup && (
+              <label className="flex items-start gap-3 cursor-pointer">
+                <div className="relative mt-0.5 flex-shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={consentAccepted}
+                    onChange={(e) => setConsentAccepted(e.target.checked)}
+                    className="peer h-4 w-4 cursor-pointer rounded border-border accent-primary"
+                    aria-required="true"
+                  />
+                </div>
+                <span className="text-xs leading-relaxed text-muted-foreground">
+                  Li e aceito os{" "}
+                  <a href="/termos" target="_blank" rel="noopener noreferrer"
+                    className="text-primary underline-offset-4 hover:underline font-medium">
+                    Termos de Uso
+                  </a>{" "}
+                  e a{" "}
+                  <a href="/privacidade" target="_blank" rel="noopener noreferrer"
+                    className="text-primary underline-offset-4 hover:underline font-medium">
+                    Política de Privacidade
+                  </a>
+                  , incluindo o tratamento de dados de saúde conforme a LGPD.
+                </span>
+              </label>
+            )}
+
+            {/* Esqueci minha senha (só no login) */}
+            {!isSignup && (
+              <button type="button" onClick={() => switchMode("forgot")}
+                className="self-end text-xs text-muted-foreground underline-offset-4 hover:text-primary hover:underline">
+                Esqueci minha senha
+              </button>
+            )}
+
+            {/* Botão principal */}
+            <button type="submit" disabled={submitting}
+              disabled={submitting || (isSignup && !consentAccepted)}
+              className="mt-1 flex w-full items-center justify-center gap-2 rounded-2xl gradient-calm py-4 font-semibold text-primary-foreground shadow-soft transition-all hover:shadow-elevated disabled:cursor-not-allowed disabled:opacity-60">
+              {submitting && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
+              {submitting ? "Aguarde..." : isSignup ? "Criar conta" : "Entrar"}
             </button>
+          </form>
+
+          {/* Segurança */}
+          <div className="flex items-center justify-center gap-1.5">
+            <ShieldCheck className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+            <p className="text-xs text-muted-foreground">
+              Conexão segura · Dados protegidos ·{" "}
+              <a href="/privacidade" target="_blank" rel="noopener noreferrer"
+                className="underline-offset-4 hover:underline hover:text-primary">
+                Privacidade
+              </a>
+            </p>
           </div>
 
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="flex w-full items-center justify-center gap-2 rounded-2xl gradient-calm py-4 font-semibold text-primary-foreground shadow-soft transition-all hover:shadow-elevated disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
-            {isSubmitting ? "Aguarde..." : isSignup ? "Criar conta" : "Entrar"}
-          </button>
-
-          {isSignup && (
-            <p className="text-center text-xs text-muted-foreground">
-              Um e-mail de verificação será enviado para confirmar sua conta.
-            </p>
-          )}
-        </form>
-
-        <button
-          type="button"
-          onClick={() => setMode(isSignup ? "login" : "signup")}
-          className="text-center text-sm text-muted-foreground hover:text-primary"
-        >
-          {isSignup ? "Já tenho uma conta" : "Criar uma conta"}
-        </button>
-      </motion.div>
+          {/* Alternar modo */}
+          <p className="text-center text-sm text-muted-foreground">
+            {isSignup ? "Já tem uma conta? " : "Ainda não tem conta? "}
+            <button type="button" onClick={() => switchMode(isSignup ? "login" : "signup")}
+              className="font-medium text-primary underline-offset-4 hover:underline">
+              {isSignup ? "Entrar" : "Criar conta"}
+            </button>
+          </p>
+        </motion.div>
+      </AnimatePresence>
     </div>
-  );
-}
-
-// ── Ícone do Google isolado para reutilização ─────────────────────────────────
-
-function GoogleIcon() {
-  return (
-    <svg className="h-5 w-5" viewBox="0 0 24 24" aria-hidden>
-      <path
-        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"
-        fill="#4285F4"
-      />
-      <path
-        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-        fill="#34A853"
-      />
-      <path
-        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-        fill="#FBBC05"
-      />
-      <path
-        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-        fill="#EA4335"
-      />
-    </svg>
   );
 }

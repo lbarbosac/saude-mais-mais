@@ -38,6 +38,14 @@ interface Exercicio {
   ordem: number;
 }
 
+// Formata segundos em formato legível: 90s → "1min 30s", 60s → "1min", 45s → "45s"
+function formatRestTime(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return s === 0 ? `${m}min` : `${m}min ${s}s`;
+}
+
 const DIAS = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
 
 const FORM_QUESTIONS = [
@@ -149,8 +157,9 @@ const Treinos = () => {
       if (!resp.ok) throw new Error(data.error || "Erro ao gerar");
       toast({ title: "Treinos gerados!", description: `${data.count} treinos criados.` });
       await loadAll();
-    } catch (e: any) {
-      toast({ title: "Erro", description: e.message, variant: "destructive" });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Erro desconhecido";
+      toast({ title: "Erro", description: msg, variant: "destructive" });
     }
     setGenerating(false);
   };
@@ -316,7 +325,7 @@ const Treinos = () => {
                             <div className="flex gap-3 mt-1 text-xs text-muted-foreground">
                               <span>{e.series}× {e.repeticoes}</span>
                               <span>•</span>
-                              <span>{Math.round(e.descanso_seg / 60 * 10) / 10} min descanso</span>
+                              <span>{formatRestTime(e.descanso_seg)} descanso</span>
                             </div>
                             {e.observacao && <p className="text-xs text-muted-foreground mt-1 italic">{e.observacao}</p>}
                           </div>
@@ -577,7 +586,7 @@ const RegistroTreino = ({ userId, treinos }: { userId: string; treinos: Treino[]
                       <select
                         value={selectedTreinoId}
                         onChange={(e) => { setSelectedTreinoId(e.target.value); setForm({ ...form, exercicio_nome: "" }); }}
-                        className="w-full rounded-xl border border-border bg-card px-3 py-2.5 text-sm"
+                        className="input-modern"
                       >
                         <option value="">Selecione o treino...</option>
                         {treinos.map((t) => (
@@ -715,9 +724,9 @@ const RegistroTreino = ({ userId, treinos }: { userId: string; treinos: Treino[]
             )}
 
             <div className="grid grid-cols-3 gap-2">
-              <input type="number" step="0.5" value={form.peso_kg} onKeyDown={handleEnter} onChange={(e) => setForm({ ...form, peso_kg: e.target.value })} placeholder="Peso (kg)" className="rounded-xl border border-border bg-card px-3 py-2.5 text-sm" />
-              <input type="number" value={form.repeticoes} onKeyDown={handleEnter} onChange={(e) => setForm({ ...form, repeticoes: e.target.value })} placeholder="Reps" className="rounded-xl border border-border bg-card px-3 py-2.5 text-sm" />
-              <input type="number" value={form.series} onKeyDown={handleEnter} onChange={(e) => setForm({ ...form, series: e.target.value })} placeholder="Séries" className="rounded-xl border border-border bg-card px-3 py-2.5 text-sm" />
+              <input type="number" step="0.5" value={form.peso_kg} onKeyDown={handleEnter} onChange={(e) => setForm({ ...form, peso_kg: e.target.value })} placeholder="Peso (kg)" className="input-modern" />
+              <input type="number" value={form.repeticoes} onKeyDown={handleEnter} onChange={(e) => setForm({ ...form, repeticoes: e.target.value })} placeholder="Reps" className="input-modern" />
+              <input type="number" value={form.series} onKeyDown={handleEnter} onChange={(e) => setForm({ ...form, series: e.target.value })} placeholder="Séries" className="input-modern" />
             </div>
             <button onClick={save} disabled={saving || !form.exercicio_nome} className="rounded-xl bg-primary py-2.5 text-sm font-semibold text-primary-foreground flex items-center justify-center gap-2 disabled:opacity-50">
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
@@ -765,7 +774,7 @@ const RegistroTreino = ({ userId, treinos }: { userId: string; treinos: Treino[]
                     <YAxis tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} width={28} />
                     <Tooltip
                       contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12, fontSize: 12 }}
-                      formatter={(v: any) => [`${v} kg`, "Peso"]}
+                      formatter={(v: number) => [`${v} kg`, "Peso"]}
                     />
                     <Area type="monotone" dataKey="peso" stroke="hsl(213 72% 59%)" strokeWidth={2.5} fill="url(#pesoGrad)" dot={{ r: 3, fill: "hsl(213 72% 59%)" }} animationDuration={600} />
                   </AreaChart>
@@ -785,7 +794,7 @@ const RegistroTreino = ({ userId, treinos }: { userId: string; treinos: Treino[]
                     <YAxis tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} width={28} />
                     <Tooltip
                       contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12, fontSize: 12 }}
-                      formatter={(v: any) => [`${v} reps`, "Reps"]}
+                      formatter={(v: number) => [`${v} reps`, "Reps"]}
                     />
                     <Area type="monotone" dataKey="reps" stroke="hsl(152 55% 45%)" strokeWidth={2.5} fill="url(#repsGrad)" dot={{ r: 3, fill: "hsl(152 55% 45%)" }} animationDuration={600} />
                   </AreaChart>
@@ -973,7 +982,7 @@ const MedidasCorporais = ({ userId }: { userId: string }) => {
                 value={medidas[f.k] ?? ""}
                 onChange={(e) => setMedidas({ ...medidas, [f.k]: e.target.value })}
                 onKeyDown={handleEnter}
-                className="mt-1 w-full rounded-xl border border-border bg-card px-3 py-2 text-sm"
+                className="input-modern"
               />
             </div>
           ))}
@@ -1150,20 +1159,20 @@ const CalculadoraGordura = ({ userId }: { userId: string }) => {
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="text-xs text-muted-foreground">Altura (cm)</label>
-            <input type="number" value={altura} onKeyDown={handleEnter} onChange={(e) => setAltura(e.target.value)} className="mt-1 w-full rounded-xl border border-border bg-card px-3 py-2 text-sm" />
+            <input type="number" value={altura} onKeyDown={handleEnter} onChange={(e) => setAltura(e.target.value)} className="input-modern" />
           </div>
           <div>
             <label className="text-xs text-muted-foreground">Pescoço (cm)</label>
-            <input type="number" value={pescoco} onKeyDown={handleEnter} onChange={(e) => setPescoco(e.target.value)} className="mt-1 w-full rounded-xl border border-border bg-card px-3 py-2 text-sm" />
+            <input type="number" value={pescoco} onKeyDown={handleEnter} onChange={(e) => setPescoco(e.target.value)} className="input-modern" />
           </div>
           <div>
             <label className="text-xs text-muted-foreground">Cintura (cm)</label>
-            <input type="number" value={cintura} onKeyDown={handleEnter} onChange={(e) => setCintura(e.target.value)} className="mt-1 w-full rounded-xl border border-border bg-card px-3 py-2 text-sm" />
+            <input type="number" value={cintura} onKeyDown={handleEnter} onChange={(e) => setCintura(e.target.value)} className="input-modern" />
           </div>
           {sexo === "feminino" && (
             <div>
               <label className="text-xs text-muted-foreground">Quadril (cm)</label>
-              <input type="number" value={quadril} onKeyDown={handleEnter} onChange={(e) => setQuadril(e.target.value)} className="mt-1 w-full rounded-xl border border-border bg-card px-3 py-2 text-sm" />
+              <input type="number" value={quadril} onKeyDown={handleEnter} onChange={(e) => setQuadril(e.target.value)} className="input-modern" />
             </div>
           )}
         </div>

@@ -1,12 +1,11 @@
 /**
  * Edge Function: gerar-habitos
  *
- * Gera hábitos personalizados via OpenAI baseado no perfil do usuário.
+ * Gera 36 hábitos personalizados via OpenAI e os salva no banco com categoria.
+ * Chamada automaticamente no primeiro acesso e opcionalmente pelo usuário (renovação).
  *
- * Variáveis de ambiente necessárias (Supabase > Edge Functions > Secrets):
+ * Variáveis de ambiente (Supabase > Edge Functions > Secrets):
  *   OPENAI_API_KEY
- *   SUPABASE_URL         (automático)
- *   SUPABASE_ANON_KEY    (automático)
  */
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -20,50 +19,54 @@ import {
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
-const RATE_LIMIT = 5;
-const RATE_WINDOW_MS = 5 * 60 * 1000; // 5 minutos
+const RATE_LIMIT    = 5;
+const RATE_WINDOW   = 5 * 60 * 1000; // 5 minutos
 
+// Ícones válidos — espelham exatamente o ICON_MAP do frontend
 const VALID_ICONS = [
   "book-open", "dumbbell", "brain", "heart", "users", "moon", "droplets",
   "apple", "music", "eye", "check", "sun", "leaf", "smile", "coffee",
   "wind", "star", "shield", "clock", "target", "zap", "flame",
 ];
 
+// Categorias válidas — usadas para seleção inteligente no frontend
+const VALID_CATEGORIES = [
+  "movimento",
+  "agua_alimentacao",
+  "sono_descanso",
+  "respiracao",
+  "social_gratidao",
+  "foco_aprendizado",
+  "humor_emocao",
+];
+
 // ─── Handler ──────────────────────────────────────────────────────────────────
 
 serve(async (req) => {
-  if (req.method === "OPTIONS") return corsPreflightResponse();
+  if (req.method === "OPTIONS") return corsPreflightResponse(req);
 
-  // Autenticação
   const auth = await authenticateRequest(req);
   if ("error" in auth) return auth.error;
   const { userId, supabase } = auth;
 
-  // Rate limiting
-  if (!checkRateLimit(userId, RATE_LIMIT, RATE_WINDOW_MS)) {
-    return errorResponse("Muitas requisições. Aguarde 5 minutos.", 429);
+  if (!checkRateLimit(userId, RATE_LIMIT, RATE_WINDOW)) {
+    return errorResponse("Muitas requisições. Aguarde 5 minutos.", 429, req);
   }
 
   const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
   if (!OPENAI_API_KEY) {
     console.error("[gerar-habitos] OPENAI_API_KEY não configurada");
-    return errorResponse("Serviço de IA não disponível.", 503);
+    return errorResponse("Serviço de IA não disponível.", 503, req);
   }
 
   try {
-    // Busca dados do usuário em paralelo
-    const [perfilResult, checkinResult, habitosRegistroResult] = await Promise.all([
+    // Busca perfil e histórico em paralelo
+    const [perfilResult, registrosResult] = await Promise.all([
       supabase
         .from("perfil_usuario")
-        .select("nome, idade, peso, altura, sexo, nivel_atividade, nivel_estresse, qualidade_sono, humor_geral, rotina, objetivo, tempo_livre")
+        .select("nivel_atividade, nivel_estresse, qualidade_sono, objetivo")
         .eq("user_id", userId)
         .single(),
-      supabase
-        .from("checkin_diario")
-        .select("humor, energia, data")
-        .eq("user_id", userId)
-        .order("data", { ascending: false })
-        .limit(7),
       supabase
         .from("habito_registro")
         .select("concluido")
@@ -73,48 +76,48 @@ serve(async (req) => {
     ]);
 
     if (!perfilResult.data) {
-      return errorResponse("Perfil não encontrado. Complete seu perfil primeiro.", 400);
+      return errorResponse("Perfil não encontrado. Complete seu perfil primeiro.", 400, req);
     }
 
-    const perfil = perfilResult.data;
-    const checkins = checkinResult.data ?? [];
-    const registros = habitosRegistroResult.data ?? [];
+    const perfil    = perfilResult.data;
+    const registros = registrosResult.data ?? [];
 
     const taxaConclusao = registros.length > 0
       ? `${Math.round((registros.filter((r) => r.concluido).length / registros.length) * 100)}%`
-      : "sem dados";
+      : "sem dados ainda";
 
-    const checkinResumo = checkins.length > 0
-      ? checkins.map((c) => `${c.data}: humor=${c.humor}, energia=${c.energia}`).join("; ")
-      : "sem registros recentes";
+    // ── Prompt ────────────────────────────────────────────────────────────────
 
-    const systemPrompt = `Você é um especialista em saúde e bem-estar. Responda APENAS com JSON válido, sem markdown, sem texto adicional.`;
+    const systemPrompt =
+      "Você é especialista em saúde e bem-estar. " +
+      "Responda APENAS com JSON válido, sem markdown, sem texto adicional.";
 
-    const userPrompt = `Gere 36 hábitos diários personalizados e variados para este usuário.
+    const userPrompt = `Gere exatamente 36 hábitos diários simples e realistas para este usuário.
 
-Perfil:
-- Idade: ${perfil.idade ?? "não informado"}
-- Peso: ${perfil.peso ?? "não informado"} kg
-- Altura: ${perfil.altura ?? "não informado"} m
-- Sexo: ${perfil.sexo ?? "não informado"}
+PERFIL:
 - Nível de atividade: ${perfil.nivel_atividade ?? "não informado"}
 - Nível de estresse: ${perfil.nivel_estresse ?? "não informado"}
 - Qualidade do sono: ${perfil.qualidade_sono ?? "não informado"}
-- Humor geral: ${perfil.humor_geral ?? "não informado"}
-- Rotina: ${perfil.rotina ?? "não informado"}
-- Objetivo: ${perfil.objetivo ?? "não informado"}
-- Tempo livre diário: ${perfil.tempo_livre ?? "não informado"}
-
-Contexto:
-- Check-ins recentes: ${checkinResumo}
+- Objetivo principal: ${perfil.objetivo ?? "não informado"}
 - Taxa de conclusão de hábitos: ${taxaConclusao}
 
-Regras:
-- Exatamente 36 hábitos ÚNICOS sem repetir ideias
-- Distribuição: físico(6), alimentação/hidratação(5), mental/foco(5), emocional(5), social(5), sono/relaxamento(4), criatividade/aprendizado(4), gratidão(2)
-- Hábitos práticos com tempo/quantidade (ex: "Caminhar 10 minutos sem celular")
-- Ícones válidos: ${VALID_ICONS.join(", ")}
-- Retorne JSON: {"habitos": [{"nome_habito": "...", "descricao": "...", "icone": "..."}]}`;
+REGRAS OBRIGATÓRIAS:
+1. Hábitos simples que qualquer pessoa faz hoje, sem comprar nada nem ter equipamentos
+2. PROIBIDO: alimentos incomuns (castanhas específicas, superalimentos), suplementos, equipamentos de academia, exercícios longos (>15 min)
+3. Nome curto, máximo 7 palavras, linguagem natural em português do Brasil
+4. Exemplos BOM: "Beber água ao acordar", "Caminhar 10 minutos", "Respirar fundo 3 vezes", "Deitar 30 minutos mais cedo", "Ligar para alguém querido"
+5. Exemplos RUIM: "Comer castanhas do Pará", "Fazer 45 min de HIIT", "Meditar 1 hora", "Tomar whey protein"
+6. Distribuição OBRIGATÓRIA por categoria (use exatamente esses nomes de categoria):
+   - "movimento": 7 hábitos (exercício leve, alongamento, caminhada)
+   - "agua_alimentacao": 6 hábitos (água, frutas, refeições, mastigação)
+   - "sono_descanso": 5 hábitos (hora de dormir, pausa, descanso)
+   - "respiracao": 5 hábitos (respiração consciente, atenção plena, meditação rápida)
+   - "social_gratidao": 5 hábitos (agradecer, conectar, sorrir, elogiar)
+   - "foco_aprendizado": 4 hábitos (leitura, organização, aprendizado)
+   - "humor_emocao": 4 hábitos (autocuidado, humor, criatividade)
+7. Ícones válidos: ${VALID_ICONS.join(", ")}
+8. Retorne SOMENTE este JSON:
+{"habitos": [{"nome_habito": "...", "descricao": "dica prática em 1 frase curta", "icone": "...", "categoria": "..."}]}`;
 
     const aiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -126,52 +129,80 @@ Regras:
         model: "gpt-4o-mini",
         messages: [
           { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
+          { role: "user",   content: userPrompt   },
         ],
         response_format: { type: "json_object" },
-        temperature: 0.7,
+        temperature: 0.65,
         max_tokens: 4000,
       }),
     });
 
     if (!aiResponse.ok) {
-      const errText = await aiResponse.text();
-      console.error("[gerar-habitos] OpenAI error:", aiResponse.status, errText);
-      if (aiResponse.status === 429) return errorResponse("Limite de IA excedido. Tente novamente em alguns minutos.", 429);
-      return errorResponse("Erro ao gerar hábitos com IA.", 502);
+      const err = await aiResponse.text();
+      console.error("[gerar-habitos] OpenAI error:", aiResponse.status, err);
+      if (aiResponse.status === 429) {
+        return errorResponse("Limite de IA excedido. Tente em alguns minutos.", 429, req);
+      }
+      return errorResponse("Erro ao gerar hábitos com IA.", 502, req);
     }
 
-    const aiData = await aiResponse.json();
+    const aiData  = await aiResponse.json();
     const content = aiData.choices?.[0]?.message?.content;
     if (!content) throw new Error("Resposta vazia da IA");
 
-    const { habitos } = JSON.parse(content);
-    if (!Array.isArray(habitos) || habitos.length === 0) {
-      throw new Error("Formato de resposta inválido");
+    const parsed = JSON.parse(content);
+    const raw: Record<string, unknown>[] = parsed.habitos ?? [];
+
+    if (!Array.isArray(raw) || raw.length === 0) {
+      throw new Error("Formato de resposta inválido da IA");
     }
 
-    // Sanitiza e valida cada hábito
-    const sanitizedHabitos = habitos.slice(0, 36).map((h: Record<string, unknown>) => ({
-      user_id: userId,
-      nome_habito: String(h.nome_habito ?? "").slice(0, 100),
-      descricao: String(h.descricao ?? "").slice(0, 300),
-      icone: VALID_ICONS.includes(String(h.icone)) ? String(h.icone) : "check",
-      gerado_por_ia: true,
-      ativo: true,
-    })).filter((h) => h.nome_habito.length > 0);
+    // Sanitiza cada hábito
+    const sanitizedFull = raw.slice(0, 36).map((h) => ({
+      user_id:         userId,
+      nome_habito:     String(h.nome_habito ?? "").slice(0, 100),
+      descricao:       String(h.descricao   ?? "").slice(0, 300),
+      icone:           VALID_ICONS.includes(String(h.icone)) ? String(h.icone) : "check",
+      categoria:       VALID_CATEGORIES.includes(String(h.categoria)) ? String(h.categoria) : "geral",
+      gerado_por_ia:   true,
+      ativo:           true,
+      ultima_exibicao: null,
+    })).filter((h) => h.nome_habito.length >= 3);
 
-    // Remove hábitos antigos gerados por IA e insere os novos
-    await supabase.from("habitos").delete().eq("user_id", userId).eq("gerado_por_ia", true);
-    const { data: inserted, error: insertError } = await supabase
+    // Versão sem colunas novas — para compatibilidade com banco sem migration
+    const sanitizedBasic = sanitizedFull.map(({ categoria, ultima_exibicao, ...rest }) => rest);
+
+    // Remove hábitos gerados por IA anteriores
+    await supabase
       .from("habitos")
-      .insert(sanitizedHabitos)
+      .delete()
+      .eq("user_id", userId)
+      .eq("gerado_por_ia", true);
+
+    // Tenta inserir com todas as colunas primeiro
+    let inserted: unknown[] | null = null;
+    const { data: d1, error: e1 } = await supabase
+      .from("habitos")
+      .insert(sanitizedFull)
       .select();
 
-    if (insertError) throw insertError;
+    if (e1) {
+      // Coluna 'categoria' ou 'ultima_exibicao' pode não existir no banco ainda
+      // Tenta sem as colunas novas
+      console.warn("[gerar-habitos] Fallback sem colunas novas:", e1.message);
+      const { data: d2, error: e2 } = await supabase
+        .from("habitos")
+        .insert(sanitizedBasic)
+        .select();
+      if (e2) throw e2;
+      inserted = d2;
+    } else {
+      inserted = d1;
+    }
 
-    return jsonResponse({ habitos: inserted, count: inserted?.length ?? 0 });
+    return jsonResponse({ habitos: inserted, count: (inserted as unknown[])?.length ?? 0 }, 200, {}, req);
   } catch (err) {
     console.error("[gerar-habitos] Unexpected error:", err);
-    return errorResponse("Erro interno ao gerar hábitos.", 500);
+    return errorResponse("Erro interno ao gerar hábitos.", 500, req);
   }
 });

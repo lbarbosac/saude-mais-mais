@@ -20,32 +20,34 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function useAuth(): AuthContextValue {
   const ctx = useContext(AuthContext);
-  if (!ctx) {
-    throw new Error("useAuth deve ser usado dentro de <AuthProvider>");
-  }
+  if (!ctx) throw new Error("useAuth deve ser usado dentro de <AuthProvider>");
   return ctx;
 }
 
-interface AuthProviderProps {
-  children: ReactNode;
-}
-
-export function AuthProvider({ children }: AuthProviderProps) {
-  const [session, setSession] = useState<Session | null>(null);
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [session, setSession]   = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Busca a sessão atual primeiro para evitar flash de tela de login
+    let initialised = false;
+
+    // 1. Lê sessão atual (cookie/localStorage) — resolve o flash de login
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
       setIsLoading(false);
+      initialised = true;
     });
 
-    // Escuta mudanças de estado subsequentes (login, logout, refresh de token)
+    // 2. Escuta mudanças futuras (login, logout, refresh de token)
+    //    Não mexe em isLoading — já foi resolvido pelo getSession acima
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, newSession) => {
         setSession(newSession);
-        setIsLoading(false);
+        // Garante que isLoading some mesmo se getSession demorar
+        if (!initialised) {
+          setIsLoading(false);
+          initialised = true;
+        }
       }
     );
 
@@ -56,12 +58,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
     await supabase.auth.signOut();
   }, []);
 
-  const value: AuthContextValue = {
-    user: session?.user ?? null,
-    session,
-    isLoading,
-    signOut,
-  };
-
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={{ user: session?.user ?? null, session, isLoading, signOut }}>
+      {children}
+    </AuthContext.Provider>
+  );
 }

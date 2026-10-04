@@ -68,7 +68,8 @@ const FriendProfile = () => {
     setIsFriend(friend);
     setProfile(prof as unknown as PublicProfile);
 
-    if ((!prof.profile_private || friend) && ((prof as any).show_progress || (prof as any).show_streak)) {
+    const profR = prof as Record<string, unknown>;
+    if ((!prof.profile_private || friend) && ((profR.show_progress as boolean) || (profR.show_streak as boolean))) {
       const since = new Date();
       since.setDate(since.getDate() - 30);
       const { data: regs } = await supabase
