@@ -1,644 +1,608 @@
-import { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Bell, MapPin, Moon, Globe, Shield, LogOut, ChevronRight, Trash2, AlertTriangle, MessageCircle, Loader2, Sun, Eye, EyeOff, Lock, Users, BellRing, BellOff, Send } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  AlertTriangle, Bell, BellOff, BellRing, ChevronRight, Eye, Loader2, LogOut,
+  MessageCircle, Monitor, Moon, Send, Shield, Sun, Trash2,
+} from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import { useNavigate } from "react-router-dom";
-import { usePushNotifications } from "@/hooks/usePushNotifications";
-
-// ── Notifications Panel ─────────────────────────────────────────────────────
-function NotificationsPanel({ onClose }: { onClose: () => void }) {
-  const {
-    permission,
-    reminderHour,
-    isSubscribed,
-    isSubscribing,
-    requestPermission,
-    subscribe,
-    sendTestNotification,
-    isSupported,
-  } = usePushNotifications();
-
-  const [hour, setHour] = useState(reminderHour);
-  const [requesting, setRequesting] = useState(false);
-  const [saved, setSaved] = useState(false);
-
-  const handleEnable = async () => {
-    setRequesting(true);
-    await requestPermission();
-    setRequesting(false);
-  };
-
-  const handleSave = async () => {
-    const ok = await subscribe(hour);
-    if (ok) {
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
-    }
-  };
-
-  if (!isSupported) {
-    return (
-      <div className="flex flex-col gap-3">
-        <p className="text-lg font-bold text-foreground">Notificações</p>
-        <p className="text-sm text-muted-foreground">
-          Seu navegador não suporta notificações push. Instale o app para receber lembretes.
-        </p>
-        <button onClick={onClose} className="mt-2 w-full rounded-xl bg-muted py-2.5 text-sm font-medium text-foreground">Fechar</button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex flex-col gap-4">
-      <p className="text-lg font-bold text-foreground">Notificações</p>
-
-      {/* Permission status */}
-      <div className={[
-        "flex items-center gap-3 rounded-xl p-3",
-        permission === "granted" ? "bg-emerald-500/10" : permission === "denied" ? "bg-destructive/10" : "bg-muted",
-      ].join(" ")}>
-        {permission === "granted"
-          ? <BellRing className="h-5 w-5 shrink-0 text-emerald-500" />
-          : permission === "denied"
-          ? <BellOff className="h-5 w-5 shrink-0 text-destructive" />
-          : <Bell className="h-5 w-5 shrink-0 text-muted-foreground" />}
-        <div>
-          <p className="text-sm font-medium text-foreground">
-            {permission === "granted" ? "Notificações ativas" : permission === "denied" ? "Notificações bloqueadas" : "Permissão necessária"}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            {permission === "denied"
-              ? "Habilite nas configurações do navegador."
-              : permission === "granted"
-              ? "Você receberá lembretes diários."
-              : "Clique em Ativar para receber lembretes."}
-          </p>
-        </div>
-      </div>
-
-      {permission !== "granted" && permission !== "denied" && (
-        <button
-          onClick={handleEnable}
-          disabled={requesting}
-          className="flex items-center justify-center gap-2 rounded-xl gradient-calm py-3 text-sm font-semibold text-white disabled:opacity-60"
-        >
-          {requesting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bell className="h-4 w-4" />}
-          {requesting ? "Aguardando..." : "Ativar notificações"}
-        </button>
-      )}
-
-      {permission === "granted" && (
-        <>
-          {/* Reminder time picker */}
-          <div className="flex flex-col gap-2">
-            <label htmlFor="reminder-hour" className="text-sm font-medium text-foreground">
-              Horário do lembrete diário
-            </label>
-            <div className="flex items-center gap-3">
-              <input
-                id="reminder-hour"
-                type="range"
-                min={5}
-                max={22}
-                value={hour}
-                onChange={(e) => setHour(Number(e.target.value))}
-                className="flex-1 accent-primary"
-              />
-              <span className="w-14 rounded-lg bg-muted px-2 py-1 text-center text-sm font-semibold text-foreground">
-                {String(hour).padStart(2, "0")}:00
-              </span>
-            </div>
-          </div>
-
-          <button
-            onClick={handleSave}
-            disabled={isSubscribing}
-            className="flex items-center justify-center gap-2 rounded-xl bg-primary py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-60"
-          >
-            {isSubscribing
-              ? <Loader2 className="h-4 w-4 animate-spin" />
-              : saved
-              ? "✓ Salvo!"
-              : isSubscribed
-              ? "Atualizar horário"
-              : "Ativar lembretes diários"}
-          </button>
-          {isSubscribed && (
-            <p className="text-xs text-muted-foreground -mt-1">
-              Você vai receber lembretes mesmo com o app fechado.
-            </p>
-          )}
-
-          {/* Test notification */}
-          <button
-            onClick={sendTestNotification}
-            className="flex items-center justify-center gap-2 rounded-xl bg-muted py-2.5 text-sm font-medium text-foreground hover:bg-muted/70"
-          >
-            <Send className="h-4 w-4" />
-            Enviar notificação de teste
-          </button>
-        </>
-      )}
-
-      <button onClick={onClose} className="rounded-xl bg-muted py-2.5 text-sm font-medium text-muted-foreground hover:text-foreground">
-        Fechar
-      </button>
-    </div>
-  );
-}
 import { supabase } from "@/lib/supabase/client";
 import { callEdgeFunction } from "@/lib/supabase/functions";
-import { applyTheme, getStoredTheme, type Theme } from "@/lib/utils/theme";
+import { useTema, type PreferenciaTema } from "@/lib/tema";
+import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { toast } from "@/hooks/use-toast";
 import BackButton from "@/components/BackButton";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
-interface LucasSettings {
+// ─── Dados ──────────────────────────────────────────────────────────────────
+
+interface ConfigLucas {
   lucas_estilo: string;
   lucas_profundidade: string;
   lucas_tom: string;
   lucas_sugestoes: string;
 }
 
-const defaultLucasSettings: LucasSettings = {
-  lucas_estilo: "equilibrado",
-  lucas_profundidade: "moderado",
-  lucas_tom: "acolhedor",
-  lucas_sugestoes: "moderado",
-};
+interface Privacidade {
+  profile_private: boolean;
+  show_habits: boolean;
+  show_progress: boolean;
+  show_streak: boolean;
+  show_dados_fisicos: boolean;
+  show_saude_mental: boolean;
+  show_objetivos: boolean;
+}
 
-const Settings = () => {
+interface Configuracoes {
+  lucas: ConfigLucas;
+  sobreVoce: string;
+  privacidade: Privacidade;
+}
+
+const OPCOES_LUCAS: { campo: keyof ConfigLucas; rotulo: string; descricao: string; opcoes: [string, string][] }[] = [
+  { campo: "lucas_estilo", rotulo: "Estilo de conversa", descricao: "Como o Lucas se comunica com você",
+    opcoes: [["direto", "Mais direto"], ["equilibrado", "Equilibrado"], ["detalhado", "Mais detalhado"]] },
+  { campo: "lucas_profundidade", rotulo: "Profundidade", descricao: "O quanto as respostas se aprofundam",
+    opcoes: [["superficial", "Prática"], ["moderado", "Moderada"], ["profundo", "Profunda"]] },
+  { campo: "lucas_tom", rotulo: "Tom", descricao: "O jeito das respostas",
+    opcoes: [["acolhedor", "Acolhedor"], ["neutro", "Neutro"], ["racional", "Racional"]] },
+  { campo: "lucas_sugestoes", rotulo: "Sugestões práticas", descricao: "Com que frequência ele sugere ações",
+    opcoes: [["poucas", "Poucas"], ["moderado", "Às vezes"], ["muitas", "Sempre"]] },
+];
+
+const OPCOES_PRIVACIDADE: { campo: keyof Privacidade; rotulo: string; ajuda?: string }[] = [
+  { campo: "show_progress", rotulo: "Meu progresso" },
+  { campo: "show_streak", rotulo: "Minha sequência" },
+  { campo: "show_dados_fisicos", rotulo: "Meus dados físicos", ajuda: "Só para amigos" },
+  { campo: "show_saude_mental", rotulo: "Minha saúde mental", ajuda: "Só para amigos" },
+  { campo: "show_objetivos", rotulo: "Meus objetivos", ajuda: "Só para amigos" },
+];
+
+const FRASE_EXCLUSAO = "EXCLUIR MEUS DADOS";
+
+// ─── Tela ───────────────────────────────────────────────────────────────────
+
+export default function Settings() {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [deleteInput, setDeleteInput] = useState("");
-  const [deleting, setDeleting] = useState(false);
+  const queryClient = useQueryClient();
+  const chave = ["configuracoes", user?.id];
+  const { preferencia: tema } = useTema();
+  const push = usePushNotifications();
 
-  // Lucas settings
-  const [lucasSettings, setLucasSettings] = useState<LucasSettings>(defaultLucasSettings);
-  const [sobreVoce, setSobreVoce] = useState("");
-  const [savingLucas, setSavingLucas] = useState(false);
-  const [loadingLucas, setLoadingLucas] = useState(true);
+  const [modal, setModal] = useState<null | "aparencia" | "notificacoes" | "privacidade" | "sair" | "excluir">(null);
 
-  // Preferences state
-  const [theme, setTheme] = useState<Theme>(() => getStoredTheme());
-  const [language, setLanguage] = useState<"pt-BR" | "en">("pt-BR");
-  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
-  const [locationEnabled, setLocationEnabled] = useState(false);
+  const config = useQuery({
+    queryKey: chave,
+    enabled: !!user,
+    queryFn: async (): Promise<Configuracoes> => {
+      const [prefs, perfil] = await Promise.all([
+        supabase.from("preferencias_usuario")
+          .select("lucas_estilo, lucas_profundidade, lucas_tom, lucas_sugestoes")
+          .eq("user_id", user!.id).single(),
+        supabase.from("perfil_usuario")
+          .select("sobre_voce, profile_private, show_habits, show_progress, show_streak, show_dados_fisicos, show_saude_mental, show_objetivos")
+          .eq("user_id", user!.id).single(),
+      ]);
+      if (prefs.error) throw prefs.error;
+      if (perfil.error) throw perfil.error;
+      const { sobre_voce, ...privacidade } = perfil.data;
+      return { lucas: prefs.data, sobreVoce: sobre_voce ?? "", privacidade };
+    },
+  });
 
-  // Privacy
-  const [showPrivacy, setShowPrivacy] = useState(false);
-  const [profilePrivate, setProfilePrivate] = useState(false);
-  const [showHabits, setShowHabits] = useState(true);
-  const [showProgress, setShowProgress] = useState(true);
-  const [showStreak, setShowStreak] = useState(true);
-  const [showDadosFisicos, setShowDadosFisicos] = useState(true);
-  const [showSaudeMental, setShowSaudeMental] = useState(true);
-  const [showObjetivos, setShowObjetivos] = useState(true);
+  const salvarLucas = useMutation({
+    mutationFn: async ({ lucas, sobreVoce }: { lucas: ConfigLucas; sobreVoce: string }) => {
+      const [a, b] = await Promise.all([
+        supabase.from("preferencias_usuario").update(lucas).eq("user_id", user!.id),
+        supabase.from("perfil_usuario").update({ sobre_voce: sobreVoce.trim().slice(0, 2000) || null }).eq("user_id", user!.id),
+      ]);
+      if (a.error) throw a.error;
+      if (b.error) throw b.error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: chave });
+      toast({ title: "Preferências do Lucas salvas" });
+    },
+    onError: () => toast({ title: "Não foi possível salvar", variant: "destructive" }),
+  });
 
-  // Modals
-  const [showLogoutModal, setShowLogoutModal] = useState(false);
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [showAppearance, setShowAppearance] = useState(false);
-  const [showNotifications, setShowNotifications] = useState(false);
-  const [showLocation, setShowLocation] = useState(false);
-  const [showLanguage, setShowLanguage] = useState(false);
+  const salvarPrivacidade = useMutation({
+    mutationFn: async (p: Privacidade) => {
+      const { error } = await supabase.from("perfil_usuario").update(p).eq("user_id", user!.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: chave });
+      setModal(null);
+      toast({ title: "Privacidade atualizada" });
+    },
+    onError: () => toast({ title: "Não foi possível salvar", variant: "destructive" }),
+  });
 
-  useEffect(() => {
-    if (user) {
-      loadLucasSettings();
-      loadPreferences();
-    }
-    const savedLang = localStorage.getItem("saude-language") as "pt-BR" | "en" | null;
-    if (savedLang) setLanguage(savedLang);
-  }, [user]);
-
-  const loadPreferences = async () => {
-    const [{ data: prefs }, { data: perfil }] = await Promise.all([
-      supabase
-        .from("preferencias_usuario")
-        .select("notificacoes_ativas, localizacao_permitida, tema")
-        .eq("user_id", user!.id)
-        .single(),
-      supabase
-        .from("perfil_usuario")
-        .select("profile_private, show_habits, show_progress, show_streak, show_dados_fisicos, show_saude_mental, show_objetivos")
-        .eq("user_id", user!.id)
-        .single(),
-    ]);
-    if (prefs) {
-      setNotificationsEnabled(prefs.notificacoes_ativas ?? true);
-      setLocationEnabled(prefs.localizacao_permitida ?? false);
-      if (prefs.tema && (prefs.tema === "escuro" || prefs.tema === "claro")) {
-        setTheme(prefs.tema as Theme);
-        applyTheme(prefs.tema as Theme);
-      }
-    }
-    if (perfil) {
-      setProfilePrivate(((perfil as Record<string,unknown>).profile_private as boolean) ?? false);
-      setShowHabits(((perfil as Record<string,unknown>).show_habits as boolean) ?? true);
-      setShowProgress(((perfil as Record<string,unknown>).show_progress as boolean) ?? true);
-      setShowStreak(((perfil as Record<string,unknown>).show_streak as boolean) ?? true);
-      setShowDadosFisicos(((perfil as Record<string,unknown>).show_dados_fisicos as boolean) ?? true);
-      setShowSaudeMental(((perfil as Record<string,unknown>).show_saude_mental as boolean) ?? true);
-      setShowObjetivos(((perfil as Record<string,unknown>).show_objetivos as boolean) ?? true);
-    }
-  };
-
-  const savePrivacy = async () => {
-    await supabase
-      .from("perfil_usuario")
-      .update({
-        profile_private: profilePrivate,
-        show_habits: showHabits,
-        show_progress: showProgress,
-        show_streak: showStreak,
-        show_dados_fisicos: showDadosFisicos,
-        show_saude_mental: showSaudeMental,
-        show_objetivos: showObjetivos,
-      } as Record<string, unknown>)
-      .eq("user_id", user!.id);
-    setShowPrivacy(false);
-    toast({ title: "Configurações de privacidade salvas" });
-  };
-
-  const loadLucasSettings = async () => {
-    setLoadingLucas(true);
-    const [prefsResult, perfilResult] = await Promise.all([
-      supabase.from("preferencias_usuario").select("lucas_estilo, lucas_profundidade, lucas_tom, lucas_sugestoes").eq("user_id", user!.id).single(),
-      supabase.from("perfil_usuario").select("sobre_voce").eq("user_id", user!.id).single(),
-    ]);
-    if (prefsResult.data) {
-      setLucasSettings({
-        lucas_estilo: (prefsResult.data as Record<string, unknown>).lucas_estilo as string || "equilibrado",
-        lucas_profundidade: (prefsResult.data as Record<string, unknown>).lucas_profundidade as string || "moderado",
-        lucas_tom: (prefsResult.data as Record<string, unknown>).lucas_tom as string || "acolhedor",
-        lucas_sugestoes: (prefsResult.data as Record<string, unknown>).lucas_sugestoes as string || "moderado",
-      });
-    }
-    if (perfilResult.data) setSobreVoce((perfilResult.data as any).sobre_voce || "");
-    setLoadingLucas(false);
-  };
-
-  const saveLucasSettings = async () => {
-    setSavingLucas(true);
-    await Promise.all([
-      supabase.from("preferencias_usuario").update({
-        lucas_estilo: lucasSettings.lucas_estilo,
-        lucas_profundidade: lucasSettings.lucas_profundidade,
-        lucas_tom: lucasSettings.lucas_tom,
-        lucas_sugestoes: lucasSettings.lucas_sugestoes,
-      } as Record<string, unknown>).eq("user_id", user!.id),
-      supabase.from("perfil_usuario").update({ sobre_voce: sobreVoce.slice(0, 2000) } as Record<string, unknown>).eq("user_id", user!.id),
-    ]);
-    toast({ title: "Configuracoes do Lucas salvas!" });
-    setSavingLucas(false);
-  };
-
-  const handleThemeChange = async (newTheme: "claro" | "escuro") => {
-    setTheme(newTheme);
-    localStorage.setItem("saude-theme", newTheme);
-    document.documentElement.classList.toggle("dark", newTheme === "escuro");
-    await supabase.from("preferencias_usuario").update({ tema: newTheme } as Record<string, unknown>).eq("user_id", user!.id);
-    toast({ title: newTheme === "escuro" ? "Tema escuro ativado" : "Tema claro ativado" });
-  };
-
-  const handleLanguageChange = (lang: "pt-BR" | "en") => {
-    setLanguage(lang);
-    localStorage.setItem("saude-language", lang);
-    toast({ title: lang === "pt-BR" ? "Idioma alterado para Portugues" : "Language changed to English" });
-  };
-
-  const handleToggleNotifications = async () => {
-    const newVal = !notificationsEnabled;
-    setNotificationsEnabled(newVal);
-    await supabase.from("preferencias_usuario").update({ notificacoes_ativas: newVal } as Record<string, unknown>).eq("user_id", user!.id);
-    toast({ title: newVal ? "Notificacoes ativadas" : "Notificações desativadas" });
-  };
-
-  const handleToggleLocation = async () => {
-    const newVal = !locationEnabled;
-    setLocationEnabled(newVal);
-    await supabase.from("preferencias_usuario").update({ localizacao_permitida: newVal } as Record<string, unknown>).eq("user_id", user!.id);
-    toast({ title: newVal ? "Localizacao ativada" : "Localizacao desativada" });
-  };
-
-  const handleLogout = async () => {
-    setShowLogoutModal(false);
+  async function sair() {
+    setModal(null);
     await signOut();
-    navigate("/login");
-  };
+    queryClient.clear();
+    navigate("/login", { replace: true });
+  }
 
-  const handleDeleteData = async () => {
-    if (deleteInput !== "EXCLUIR MEUS DADOS") {
-      toast({ title: "Digite exatamente 'EXCLUIR MEUS DADOS' para confirmar", variant: "destructive" });
-      return;
-    }
-    setDeleting(true);
-    try {
-      const { error: deleteErr } = await callEdgeFunction("excluir-dados", {
-        body: { confirmacao: "EXCLUIR MEUS DADOS" },
-      });
-      if (deleteErr) throw new Error(deleteErr);
-      toast({ title: "Dados excluídos com sucesso" });
-      await signOut();
-      navigate("/login");
-    } catch {
-      toast({ title: "Erro ao excluir dados", variant: "destructive" });
-    }
-    setDeleting(false);
-  };
-
-  const OptionGroup = ({ label, description, options, value, onChange }: {
-    label: string; description: string; options: { value: string; label: string }[]; value: string; onChange: (v: string) => void;
-  }) => (
-    <div className="space-y-2">
-      <div>
-        <p className="text-sm font-medium text-foreground">{label}</p>
-        <p className="text-xs text-muted-foreground">{description}</p>
-      </div>
-      <div className="flex gap-2">
-        {options.map((opt) => (
-          <button key={opt.value} onClick={() => onChange(opt.value)} className={`flex-1 rounded-xl px-3 py-2 text-xs font-medium transition-colors ${value === opt.value ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}>
-            {opt.label}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-
-  const Toggle = ({ enabled, onToggle, label }: { enabled: boolean; onToggle: () => void; label: string }) => (
-    <button onClick={onToggle} className="flex items-center justify-between w-full py-2">
-      <span className="text-sm text-foreground">{label}</span>
-      <div className={`relative h-6 w-11 rounded-full transition-colors ${enabled ? "bg-primary" : "bg-muted-foreground/30"}`}>
-        <div className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${enabled ? "translate-x-5" : "translate-x-0.5"}`} />
-      </div>
-    </button>
-  );
-
-  const Modal = ({ show, onClose, children }: { show: boolean; onClose: () => void; children: React.ReactNode }) => (
-    <AnimatePresence>
-      {show && (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-          <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }} className="w-full max-w-sm rounded-2xl bg-card border border-border p-6 shadow-elevated" onClick={(e) => e.stopPropagation()}>
-            {children}
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
-  );
+  const rotuloTema: Record<PreferenciaTema, string> = { claro: "Claro", escuro: "Escuro", sistema: "Igual ao sistema" };
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col gap-6">
       <div className="flex items-center gap-3">
         <BackButton to="/perfil" />
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Configuracoes</h1>
-          <p className="text-sm text-muted-foreground">Personalize sua experiencia</p>
+          <h1 className="text-2xl font-bold text-foreground">Configurações</h1>
+          <p className="text-sm text-muted-foreground">Personalize sua experiência</p>
         </div>
       </div>
 
-      {/* Lucas Amigo Settings */}
-      <div>
-        <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Lucas — Saúde Mental</p>
-        <div className="rounded-2xl border border-border bg-card p-4 space-y-5">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
-              <MessageCircle className="h-5 w-5" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-foreground">Configurar o Lucas</p>
-              <p className="text-xs text-muted-foreground">Personalize como o Lucas conversa com voce</p>
-            </div>
+      <Secao titulo="Amigo Lucas">
+        {config.isLoading ? (
+          <div className="flex justify-center rounded-2xl border border-border bg-card py-8">
+            <Loader2 className="h-5 w-5 animate-spin text-primary" aria-label="Carregando" />
           </div>
+        ) : config.data ? (
+          <FormLucas
+            inicial={config.data}
+            salvando={salvarLucas.isPending}
+            onSalvar={(lucas, sobreVoce) => salvarLucas.mutate({ lucas, sobreVoce })}
+          />
+        ) : (
+          <p className="rounded-2xl border border-border bg-card p-4 text-sm text-muted-foreground">
+            Não foi possível carregar suas preferências.
+          </p>
+        )}
+      </Secao>
 
-          {loadingLucas ? (
-            <div className="flex items-center justify-center py-4"><Loader2 className="h-5 w-5 animate-spin text-primary" /></div>
-          ) : (
-            <>
-              <OptionGroup label="Estilo de Conversa" description="Como o Lucas se comunica com voce"
-                options={[{ value: "direto", label: "Mais direto" }, { value: "equilibrado", label: "Equilibrado" }, { value: "detalhado", label: "Mais detalhado" }]}
-                value={lucasSettings.lucas_estilo} onChange={(v) => setLucasSettings((s) => ({ ...s, lucas_estilo: v }))} />
-              <OptionGroup label="Nivel de Profundidade" description="Quao profundas sao as respostas"
-                options={[{ value: "superficial", label: "Superficial" }, { value: "moderado", label: "Moderado" }, { value: "profundo", label: "Profundo" }]}
-                value={lucasSettings.lucas_profundidade} onChange={(v) => setLucasSettings((s) => ({ ...s, lucas_profundidade: v }))} />
-              <OptionGroup label="Tom Emocional" description="O tom das respostas do Lucas"
-                options={[{ value: "acolhedor", label: "Acolhedor" }, { value: "neutro", label: "Neutro" }, { value: "racional", label: "Racional" }]}
-                value={lucasSettings.lucas_tom} onChange={(v) => setLucasSettings((s) => ({ ...s, lucas_tom: v }))} />
-              <OptionGroup label="Frequencia de Sugestoes" description="Quantas sugestoes praticas o Lucas oferece"
-                options={[{ value: "poucas", label: "Poucas" }, { value: "moderado", label: "Moderado" }, { value: "muitas", label: "Muitas" }]}
-                value={lucasSettings.lucas_sugestoes} onChange={(v) => setLucasSettings((s) => ({ ...s, lucas_sugestoes: v }))} />
-              <div className="space-y-2">
-                <div>
-                  <p className="text-sm font-medium text-foreground">Conte mais sobre voce</p>
-                  <p className="text-xs text-muted-foreground">Compartilhe informacoes pessoais para o Lucas te entender melhor</p>
-                </div>
-                <textarea value={sobreVoce} onChange={(e) => setSobreVoce(e.target.value.slice(0, 2000))} placeholder="Ex: Sou introvertido, trabalho de casa..." className="textarea-modern" rows={4} />
-                <p className="text-xs text-muted-foreground text-right">{sobreVoce.length}/2000</p>
-              </div>
-              <button onClick={saveLucasSettings} disabled={savingLucas} className="w-full rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-soft disabled:opacity-50">
-                {savingLucas ? "Salvando..." : "Salvar configuracoes do Lucas"}
-              </button>
-            </>
-          )}
-        </div>
-      </div>
+      <Secao titulo="Preferências">
+        <ItemMenu
+          icone={tema === "escuro" ? Moon : tema === "claro" ? Sun : Monitor}
+          titulo="Aparência"
+          detalhe={rotuloTema[tema]}
+          onClick={() => setModal("aparencia")}
+        />
+        <ItemMenu
+          icone={Bell}
+          titulo="Lembrete diário"
+          detalhe={push.inscrito ? `Todos os dias às ${String(push.hora).padStart(2, "0")}:00` : "Desativado"}
+          onClick={() => setModal("notificacoes")}
+        />
+      </Secao>
 
-      {/* Preferencias */}
-      <div>
-        <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Preferencias</p>
-        <div className="flex flex-col gap-2">
-          <button onClick={() => setShowAppearance(true)} className="flex items-center gap-4 rounded-2xl border border-border bg-card p-4 text-left transition-colors hover:bg-muted">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
-              {theme === "escuro" ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
-            </div>
-            <div className="flex-1">
-              <p className="text-sm font-medium text-foreground">Aparencia</p>
-              <p className="text-xs text-muted-foreground">{theme === "escuro" ? "Tema escuro" : "Tema claro"}</p>
-            </div>
-            <ChevronRight className="h-4 w-4 text-muted-foreground" />
-          </button>
+      <Secao titulo="Conta">
+        <ItemMenu
+          icone={Shield}
+          titulo="Privacidade"
+          detalhe={config.data?.privacidade.profile_private ? "Perfil visível só para amigos" : "Perfil público"}
+          onClick={() => setModal("privacidade")}
+        />
+        <ItemMenu icone={LogOut} titulo="Sair da conta" detalhe="Encerrar a sessão neste aparelho" perigo onClick={() => setModal("sair")} />
+      </Secao>
 
-          <button onClick={() => setShowNotifications(true)} className="flex items-center gap-4 rounded-2xl border border-border bg-card p-4 text-left transition-colors hover:bg-muted">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary"><Bell className="h-5 w-5" /></div>
-            <div className="flex-1">
-              <p className="text-sm font-medium text-foreground">Notificações</p>
-              <p className="text-xs text-muted-foreground">{notificationsEnabled ? "Ativadas" : "Desativadas"}</p>
-            </div>
-            <ChevronRight className="h-4 w-4 text-muted-foreground" />
-          </button>
-
-          <button onClick={() => setShowLocation(true)} className="flex items-center gap-4 rounded-2xl border border-border bg-card p-4 text-left transition-colors hover:bg-muted">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary"><MapPin className="h-5 w-5" /></div>
-            <div className="flex-1">
-              <p className="text-sm font-medium text-foreground">Localizacao</p>
-              <p className="text-xs text-muted-foreground">{locationEnabled ? "Ativada" : "Desativada"}</p>
-            </div>
-            <ChevronRight className="h-4 w-4 text-muted-foreground" />
-          </button>
-
-          <button onClick={() => setShowLanguage(true)} className="flex items-center gap-4 rounded-2xl border border-border bg-card p-4 text-left transition-colors hover:bg-muted">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary"><Globe className="h-5 w-5" /></div>
-            <div className="flex-1">
-              <p className="text-sm font-medium text-foreground">Idioma</p>
-              <p className="text-xs text-muted-foreground">{language === "pt-BR" ? "Portugues (Brasil)" : "English"}</p>
-            </div>
-            <ChevronRight className="h-4 w-4 text-muted-foreground" />
-          </button>
-        </div>
-      </div>
-
-      {/* Conta */}
-      <div>
-        <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Conta</p>
-        <div className="flex flex-col gap-2">
-          <button onClick={() => setShowPrivacy(true)} className="flex items-center gap-4 rounded-2xl border border-border bg-card p-4 text-left transition-colors hover:bg-muted">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary"><Shield className="h-5 w-5" /></div>
-            <div className="flex-1">
-              <p className="text-sm font-medium text-foreground">Privacidade</p>
-              <p className="text-xs text-muted-foreground">{profilePrivate ? "Perfil privado" : "Perfil publico"}</p>
-            </div>
-            <ChevronRight className="h-4 w-4 text-muted-foreground" />
-          </button>
-
-          <button onClick={() => setShowLogoutModal(true)} className="flex items-center gap-4 rounded-2xl border border-border bg-card p-4 text-left transition-colors hover:bg-muted">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-destructive/10 text-destructive"><LogOut className="h-5 w-5" /></div>
-            <div className="flex-1">
-              <p className="text-sm font-medium text-destructive">Sair da conta</p>
-              <p className="text-xs text-muted-foreground">Encerrar sessao atual</p>
-            </div>
-            <ChevronRight className="h-4 w-4 text-muted-foreground" />
-          </button>
-        </div>
-      </div>
-
-      {/* LGPD */}
-      <div>
-        <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">LGPD — Privacidade</p>
-        <div className="flex gap-3 mb-3">
-          <a href="/termos" className="text-xs text-primary underline-offset-4 hover:underline">Termos de Uso</a>
-          <span className="text-muted-foreground text-xs">·</span>
-          <a href="/privacidade" className="text-xs text-primary underline-offset-4 hover:underline">Política de Privacidade</a>
+      <Secao titulo="Seus dados">
+        <div className="flex gap-3 text-xs">
+          <Link to="/termos" className="text-primary underline-offset-4 hover:underline">Termos de Uso</Link>
+          <span aria-hidden className="text-muted-foreground">·</span>
+          <Link to="/privacidade" className="text-primary underline-offset-4 hover:underline">Política de Privacidade</Link>
         </div>
         <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-4">
-          <div className="flex items-center gap-3 mb-3">
-            <AlertTriangle className="h-5 w-5 text-destructive" />
-            <p className="text-sm font-semibold text-destructive">Excluir todos os meus dados</p>
+          <div className="mb-2 flex items-center gap-2">
+            <AlertTriangle className="h-5 w-5 text-destructive" aria-hidden />
+            <p className="text-sm font-semibold text-destructive">Excluir minha conta</p>
           </div>
-          <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
-            Conforme a LGPD, você tem o direito de solicitar a exclusão de todos os seus dados pessoais.
-            Esta acao e irreversivel e removera todas as suas conversas, habitos, check-ins e dados de perfil.
+          <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
+            Pela LGPD você pode pedir a exclusão de todos os seus dados. A conta, as conversas, os hábitos, os
+            check-ins e o perfil são apagados de forma definitiva.
           </p>
-          <button onClick={() => setShowDeleteModal(true)} className="flex items-center gap-2 rounded-xl bg-destructive/10 px-4 py-2.5 text-sm font-medium text-destructive hover:bg-destructive/20">
-            <Trash2 className="h-4 w-4" />
-            Solicitar exclusao
+          <button
+            type="button"
+            onClick={() => setModal("excluir")}
+            className="flex items-center gap-2 rounded-xl bg-destructive/10 px-4 py-2.5 text-sm font-medium text-destructive hover:bg-destructive/20"
+          >
+            <Trash2 className="h-4 w-4" aria-hidden />
+            Excluir conta e dados
           </button>
+        </div>
+      </Secao>
+
+      <p className="text-center text-xs text-muted-foreground">Saúde++ v{__APP_VERSION__}</p>
+
+      <ModalAparencia aberto={modal === "aparencia"} onFechar={() => setModal(null)} />
+      <ModalLembrete aberto={modal === "notificacoes"} onFechar={() => setModal(null)} push={push} />
+      {config.data && (
+        <ModalPrivacidade
+          aberto={modal === "privacidade"}
+          inicial={config.data.privacidade}
+          salvando={salvarPrivacidade.isPending}
+          onSalvar={(p) => salvarPrivacidade.mutate(p)}
+          onVerPerfil={() => {
+            setModal(null);
+            navigate(`/amigo/${user!.id}?previa=1`);
+          }}
+          onFechar={() => setModal(null)}
+        />
+      )}
+
+      <AlertDialog open={modal === "sair"} onOpenChange={(v) => !v && setModal(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Sair da conta?</AlertDialogTitle>
+            <AlertDialogDescription>Você vai precisar entrar de novo para usar o app neste aparelho.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-2">
+            <AlertDialogCancel className="btn-secondary mt-0">Cancelar</AlertDialogCancel>
+            <button type="button" onClick={sair} className="btn-danger">Sair</button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <ModalExcluirConta
+        aberto={modal === "excluir"}
+        onFechar={() => setModal(null)}
+        onExcluida={async () => {
+          await signOut();
+          queryClient.clear();
+          navigate("/login", { replace: true });
+        }}
+      />
+    </motion.div>
+  );
+}
+
+// ─── Componentes ────────────────────────────────────────────────────────────
+
+function Secao({ titulo, children }: { titulo: string; children: ReactNode }) {
+  return (
+    <section className="flex flex-col gap-2">
+      <h2 className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">{titulo}</h2>
+      {children}
+    </section>
+  );
+}
+
+function ItemMenu({
+  icone: Icone, titulo, detalhe, perigo, onClick,
+}: {
+  icone: typeof Bell;
+  titulo: string;
+  detalhe: string;
+  perigo?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex items-center gap-4 rounded-2xl border border-border bg-card p-4 text-left transition-colors hover:bg-muted"
+    >
+      <span className={["flex h-10 w-10 items-center justify-center rounded-xl", perigo ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary"].join(" ")}>
+        <Icone className="h-5 w-5" aria-hidden />
+      </span>
+      <span className="flex-1">
+        <span className={["block text-sm font-medium", perigo ? "text-destructive" : "text-foreground"].join(" ")}>{titulo}</span>
+        <span className="block text-xs text-muted-foreground">{detalhe}</span>
+      </span>
+      <ChevronRight className="h-4 w-4 text-muted-foreground" aria-hidden />
+    </button>
+  );
+}
+
+function Alternador({ ligado, onAlternar, rotulo, ajuda }: { ligado: boolean; onAlternar: () => void; rotulo: string; ajuda?: string }) {
+  return (
+    <button type="button" role="switch" aria-checked={ligado} onClick={onAlternar} className="flex w-full items-center justify-between gap-3 py-2 text-left">
+      <span>
+        <span className="block text-sm text-foreground">{rotulo}</span>
+        {ajuda && <span className="block text-xs text-muted-foreground">{ajuda}</span>}
+      </span>
+      <span className={["relative h-6 w-11 shrink-0 rounded-full transition-colors", ligado ? "bg-primary" : "bg-muted-foreground/30"].join(" ")}>
+        <span className={["absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform", ligado ? "translate-x-5" : "translate-x-0.5"].join(" ")} />
+      </span>
+    </button>
+  );
+}
+
+function FormLucas({
+  inicial, salvando, onSalvar,
+}: {
+  inicial: Configuracoes;
+  salvando: boolean;
+  onSalvar: (lucas: ConfigLucas, sobreVoce: string) => void;
+}) {
+  const [lucas, setLucas] = useState(inicial.lucas);
+  const [sobreVoce, setSobreVoce] = useState(inicial.sobreVoce);
+
+  useEffect(() => {
+    setLucas(inicial.lucas);
+    setSobreVoce(inicial.sobreVoce);
+  }, [inicial]);
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSalvar(lucas, sobreVoce);
+      }}
+      className="space-y-5 rounded-2xl border border-border bg-card p-4"
+    >
+      <div className="flex items-center gap-3">
+        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+          <MessageCircle className="h-5 w-5" aria-hidden />
+        </span>
+        <div>
+          <p className="text-sm font-medium text-foreground">Como o Lucas conversa com você</p>
+          <p className="text-xs text-muted-foreground">Vale para as próximas mensagens</p>
         </div>
       </div>
 
-      <p className="text-center text-xs text-muted-foreground">Saúde em Sintonia v1.0.0</p>
-
-      {/* === MODALS === */}
-
-      {/* Appearance Modal */}
-      <Modal show={showAppearance} onClose={() => setShowAppearance(false)}>
-        <p className="text-lg font-bold text-foreground mb-4">Aparencia</p>
-        <div className="flex gap-3">
-          <button onClick={() => { handleThemeChange("claro"); setShowAppearance(false); }} className={`flex-1 flex flex-col items-center gap-2 rounded-xl p-4 border-2 transition-all ${theme === "claro" ? "border-primary bg-primary/5" : "border-border"}`}>
-            <Sun className="h-6 w-6 text-foreground" />
-            <span className="text-sm font-medium text-foreground">Claro</span>
-          </button>
-          <button onClick={() => { handleThemeChange("escuro"); setShowAppearance(false); }} className={`flex-1 flex flex-col items-center gap-2 rounded-xl p-4 border-2 transition-all ${theme === "escuro" ? "border-primary bg-primary/5" : "border-border"}`}>
-            <Moon className="h-6 w-6 text-foreground" />
-            <span className="text-sm font-medium text-foreground">Escuro</span>
-          </button>
-        </div>
-      </Modal>
-
-      {/* Notifications Modal — real push notifications */}
-      <Modal show={showNotifications} onClose={() => setShowNotifications(false)}>
-        <NotificationsPanel onClose={() => setShowNotifications(false)} />
-      </Modal>
-
-      {/* Location Modal */}
-      <Modal show={showLocation} onClose={() => setShowLocation(false)}>
-        <p className="text-lg font-bold text-foreground mb-4">Localizacao</p>
-        <Toggle enabled={locationEnabled} onToggle={() => { handleToggleLocation(); }} label="Ativar localizacao" />
-        <p className="text-xs text-muted-foreground mt-2">Permite sugestoes personalizadas com base na sua localizacao.</p>
-        <button onClick={() => setShowLocation(false)} className="mt-4 w-full rounded-xl bg-primary py-2.5 text-sm font-semibold text-primary-foreground">Fechar</button>
-      </Modal>
-
-      {/* Language Modal */}
-      <Modal show={showLanguage} onClose={() => setShowLanguage(false)}>
-        <p className="text-lg font-bold text-foreground mb-4">Idioma</p>
-        <div className="flex flex-col gap-2">
-          <button onClick={() => { handleLanguageChange("pt-BR"); setShowLanguage(false); }} className={`flex items-center gap-3 rounded-xl p-3 border-2 transition-all ${language === "pt-BR" ? "border-primary bg-primary/5" : "border-border"}`}>
-            <span className="text-lg">🇧🇷</span>
-            <span className="text-sm font-medium text-foreground">Portugues (Brasil)</span>
-          </button>
-          <button onClick={() => { handleLanguageChange("en"); setShowLanguage(false); }} className={`flex items-center gap-3 rounded-xl p-3 border-2 transition-all ${language === "en" ? "border-primary bg-primary/5" : "border-border"}`}>
-            <span className="text-lg">🇺🇸</span>
-            <span className="text-sm font-medium text-foreground">English</span>
-          </button>
-        </div>
-      </Modal>
-
-      {/* Privacy Modal */}
-      <Modal show={showPrivacy} onClose={() => setShowPrivacy(false)}>
-        <p className="text-lg font-bold text-foreground mb-1">Privacidade</p>
-        <p className="text-xs text-muted-foreground mb-4">Controle quem pode ver suas informações</p>
-        <div className="space-y-3 max-h-[55vh] overflow-y-auto">
-          <Toggle enabled={profilePrivate} onToggle={() => setProfilePrivate(!profilePrivate)} label="Perfil privado (somente amigos)" />
-          <div className="border-t border-border pt-3 space-y-1">
-            <p className="text-xs font-medium text-muted-foreground mb-2">Informações visíveis:</p>
-            <Toggle enabled={showDadosFisicos} onToggle={() => setShowDadosFisicos(!showDadosFisicos)} label="Meus dados físicos" />
-            <Toggle enabled={showSaudeMental} onToggle={() => setShowSaudeMental(!showSaudeMental)} label="Minha saúde mental" />
-            <Toggle enabled={showObjetivos} onToggle={() => setShowObjetivos(!showObjetivos)} label="Meus objetivos" />
-            <Toggle enabled={showHabits} onToggle={() => setShowHabits(!showHabits)} label="Meus hábitos" />
-            <Toggle enabled={showProgress} onToggle={() => setShowProgress(!showProgress)} label="Meu progresso" />
-            <Toggle enabled={showStreak} onToggle={() => setShowStreak(!showStreak)} label="Minha sequência" />
+      {OPCOES_LUCAS.map(({ campo, rotulo, descricao, opcoes }) => (
+        <fieldset key={campo} className="space-y-2">
+          <legend className="text-sm font-medium text-foreground">{rotulo}</legend>
+          <p className="text-xs text-muted-foreground">{descricao}</p>
+          <div className="flex gap-2">
+            {opcoes.map(([valor, texto]) => (
+              <button
+                key={valor}
+                type="button"
+                aria-pressed={lucas[campo] === valor}
+                onClick={() => setLucas((l) => ({ ...l, [campo]: valor }))}
+                className={[
+                  "flex-1 rounded-xl px-2 py-2 text-xs font-medium transition-colors",
+                  lucas[campo] === valor ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/70",
+                ].join(" ")}
+              >
+                {texto}
+              </button>
+            ))}
           </div>
-          <button
-            onClick={() => { setShowPrivacy(false); navigate(`/amigo/${user!.id}`); }}
-            className="w-full flex items-center justify-center gap-2 rounded-xl border border-primary/30 bg-primary/5 py-2.5 text-sm font-medium text-primary hover:bg-primary/10"
-          >
-            <Eye className="h-4 w-4" />
-            Visualizar meu perfil
-          </button>
-        </div>
-        <button onClick={savePrivacy} className="mt-4 w-full rounded-xl bg-primary py-2.5 text-sm font-semibold text-primary-foreground">Salvar</button>
-      </Modal>
+        </fieldset>
+      ))}
 
-      {/* Logout Modal */}
-      <Modal show={showLogoutModal} onClose={() => setShowLogoutModal(false)}>
-        <div className="text-center">
-          <LogOut className="mx-auto h-10 w-10 text-destructive mb-3" />
-          <p className="text-lg font-bold text-foreground mb-2">Deseja sair da conta?</p>
-          <p className="text-sm text-muted-foreground mb-4">Voce precisara fazer login novamente para acessar o app.</p>
-          <div className="flex gap-3">
-            <button onClick={() => setShowLogoutModal(false)} className="flex-1 rounded-xl border border-border py-2.5 text-sm font-medium text-foreground">Cancelar</button>
-            <button onClick={handleLogout} className="flex-1 rounded-xl bg-destructive py-2.5 text-sm font-semibold text-destructive-foreground">Sair</button>
-          </div>
-        </div>
-      </Modal>
+      <div className="space-y-2">
+        <label htmlFor="sobre-voce" className="text-sm font-medium text-foreground">Conte um pouco sobre você</label>
+        <p id="sobre-voce-ajuda" className="text-xs text-muted-foreground">
+          Ajuda o Lucas a entender seu contexto. Evite dados que identifiquem você, como documentos ou endereço.
+        </p>
+        <textarea
+          id="sobre-voce"
+          aria-describedby="sobre-voce-ajuda"
+          value={sobreVoce}
+          onChange={(e) => setSobreVoce(e.target.value.slice(0, 2000))}
+          placeholder="Ex.: sou introvertido, trabalho de casa e tenho dormido pouco."
+          className="textarea-modern"
+          rows={4}
+        />
+        <p className="text-right text-xs text-muted-foreground">{sobreVoce.length}/2000</p>
+      </div>
 
-      {/* Delete Account Modal */}
-      <Modal show={showDeleteModal} onClose={() => { setShowDeleteModal(false); setDeleteInput(""); }}>
-        <div className="text-center">
-          <AlertTriangle className="mx-auto h-10 w-10 text-destructive mb-3" />
-          <p className="text-lg font-bold text-foreground mb-2">Tem certeza que deseja excluir sua conta?</p>
-          <p className="text-sm text-muted-foreground mb-4">Todas as informações serão perdidas permanentemente. Esta ação não pode ser desfeita.</p>
-          <p className="text-xs font-medium text-destructive mb-2 text-left">Digite "EXCLUIR MEUS DADOS" para confirmar:</p>
-          <input value={deleteInput} onChange={(e) => setDeleteInput(e.target.value)} placeholder="EXCLUIR MEUS DADOS" className="input-modern !border-destructive/40 focus:!border-destructive focus:!ring-destructive/20 mb-4" />
-          <div className="flex gap-3">
-            <button onClick={() => { setShowDeleteModal(false); setDeleteInput(""); }} className="flex-1 rounded-xl border border-border py-2.5 text-sm font-medium text-foreground">Cancelar</button>
-            <button onClick={handleDeleteData} disabled={deleting} className="flex-1 rounded-xl bg-destructive py-2.5 text-sm font-semibold text-destructive-foreground disabled:opacity-50">
-              {deleting ? "Excluindo..." : "Excluir"}
-            </button>
-          </div>
-        </div>
-      </Modal>
-    </motion.div>
+      <button type="submit" disabled={salvando} className="btn-primary w-full">
+        {salvando ? "Salvando…" : "Salvar preferências do Lucas"}
+      </button>
+    </form>
   );
-};
+}
 
-export default Settings;
+function ModalAparencia({ aberto, onFechar }: { aberto: boolean; onFechar: () => void }) {
+  const { preferencia, definir } = useTema();
+  const opcoes: { valor: PreferenciaTema; rotulo: string; icone: typeof Sun }[] = [
+    { valor: "claro", rotulo: "Claro", icone: Sun },
+    { valor: "escuro", rotulo: "Escuro", icone: Moon },
+    { valor: "sistema", rotulo: "Sistema", icone: Monitor },
+  ];
+  return (
+    <Dialog open={aberto} onOpenChange={(v) => !v && onFechar()}>
+      <DialogContent>
+        <DialogTitle>Aparência</DialogTitle>
+        <DialogDescription>"Sistema" acompanha o modo claro ou escuro do seu aparelho.</DialogDescription>
+        <div className="grid grid-cols-3 gap-3" role="radiogroup" aria-label="Tema">
+          {opcoes.map(({ valor, rotulo, icone: Icone }) => (
+            <button
+              key={valor}
+              type="button"
+              role="radio"
+              aria-checked={preferencia === valor}
+              onClick={() => definir(valor)}
+              className={[
+                "flex flex-col items-center gap-2 rounded-xl border-2 p-4 transition-colors",
+                preferencia === valor ? "border-primary bg-primary/5" : "border-border hover:border-primary/30",
+              ].join(" ")}
+            >
+              <Icone className="h-6 w-6 text-foreground" aria-hidden />
+              <span className="text-sm font-medium text-foreground">{rotulo}</span>
+            </button>
+          ))}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ModalLembrete({
+  aberto, onFechar, push,
+}: {
+  aberto: boolean;
+  onFechar: () => void;
+  push: ReturnType<typeof usePushNotifications>;
+}) {
+  const [hora, setHora] = useState(push.hora);
+  useEffect(() => {
+    if (aberto) setHora(push.hora);
+  }, [aberto, push.hora]);
+
+  async function executar(acao: () => Promise<string | null>, sucesso: string) {
+    const erro = await acao();
+    toast(erro ? { title: erro, variant: "destructive" } : { title: sucesso });
+  }
+
+  const status = !push.suportado
+    ? { icone: BellOff, texto: "Este navegador não suporta notificações. Instale o app ou use outro navegador.", cor: "text-muted-foreground" }
+    : push.permissao === "denied"
+      ? { icone: BellOff, texto: "As notificações estão bloqueadas. Libere nas configurações do navegador.", cor: "text-destructive" }
+      : push.inscrito
+        ? { icone: BellRing, texto: "Você recebe o lembrete mesmo com o app fechado.", cor: "text-emerald-600 dark:text-emerald-400" }
+        : { icone: Bell, texto: "Escolha um horário para lembrar dos seus hábitos.", cor: "text-muted-foreground" };
+
+  return (
+    <Dialog open={aberto} onOpenChange={(v) => !v && onFechar()}>
+      <DialogContent>
+        <DialogTitle>Lembrete diário</DialogTitle>
+        <DialogDescription className="flex items-start gap-2">
+          <status.icone className={`mt-0.5 h-4 w-4 shrink-0 ${status.cor}`} aria-hidden />
+          {status.texto}
+        </DialogDescription>
+
+        {push.suportado && push.permissao !== "denied" && (
+          <>
+            <div className="flex flex-col gap-2">
+              <label htmlFor="hora-lembrete" className="text-sm font-medium text-foreground">Horário</label>
+              <div className="flex items-center gap-3">
+                <input
+                  id="hora-lembrete"
+                  type="range"
+                  min={5}
+                  max={22}
+                  value={hora}
+                  onChange={(e) => setHora(Number(e.target.value))}
+                  aria-valuetext={`${hora} horas`}
+                  className="flex-1 accent-primary"
+                />
+                <span className="w-14 rounded-lg bg-muted px-2 py-1 text-center text-sm font-semibold text-foreground">
+                  {String(hora).padStart(2, "0")}:00
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              disabled={push.ocupado}
+              onClick={() => executar(() => push.ativar(hora), "Lembrete salvo")}
+              className="btn-primary w-full"
+            >
+              {push.ocupado ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : push.inscrito ? "Atualizar horário" : "Ativar lembrete"}
+            </button>
+            {push.inscrito && (
+              <div className="flex gap-2">
+                <button type="button" onClick={() => push.testar()} className="btn-secondary flex-1">
+                  <Send className="h-4 w-4" aria-hidden />
+                  Testar
+                </button>
+                <button
+                  type="button"
+                  disabled={push.ocupado}
+                  onClick={() => executar(push.desativar, "Lembrete desativado")}
+                  className="btn-secondary flex-1"
+                >
+                  Desativar
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ModalPrivacidade({
+  aberto, inicial, salvando, onSalvar, onVerPerfil, onFechar,
+}: {
+  aberto: boolean;
+  inicial: Privacidade;
+  salvando: boolean;
+  onSalvar: (p: Privacidade) => void;
+  onVerPerfil: () => void;
+  onFechar: () => void;
+}) {
+  const [p, setP] = useState(inicial);
+  useEffect(() => {
+    if (aberto) setP(inicial);
+  }, [aberto, inicial]);
+
+  return (
+    <Dialog open={aberto} onOpenChange={(v) => !v && onFechar()}>
+      <DialogContent>
+        <DialogTitle>Privacidade</DialogTitle>
+        <DialogDescription>
+          Quem não é seu amigo vê no máximo nome, nickname, foto, progresso e sequência. Dados de saúde só aparecem
+          para amigos, e só o que você liberar.
+        </DialogDescription>
+        <div className="space-y-1">
+          <Alternador
+            ligado={p.profile_private}
+            onAlternar={() => setP((x) => ({ ...x, profile_private: !x.profile_private }))}
+            rotulo="Perfil privado"
+            ajuda="Quem não é seu amigo vê só nome e foto"
+          />
+          <div className="mt-2 border-t border-border pt-2">
+            <p className="mb-1 text-xs font-medium text-muted-foreground">O que aparece no seu perfil</p>
+            {OPCOES_PRIVACIDADE.map(({ campo, rotulo, ajuda }) => (
+              <Alternador key={campo} ligado={p[campo]} onAlternar={() => setP((x) => ({ ...x, [campo]: !x[campo] }))} rotulo={rotulo} ajuda={ajuda} />
+            ))}
+          </div>
+        </div>
+        <button type="button" onClick={onVerPerfil} className="btn-secondary w-full">
+          <Eye className="h-4 w-4" aria-hidden />
+          Ver como meus amigos veem
+        </button>
+        <button type="button" disabled={salvando} onClick={() => onSalvar(p)} className="btn-primary w-full">
+          {salvando ? "Salvando…" : "Salvar"}
+        </button>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ModalExcluirConta({ aberto, onFechar, onExcluida }: { aberto: boolean; onFechar: () => void; onExcluida: () => void }) {
+  const [texto, setTexto] = useState("");
+  const [excluindo, setExcluindo] = useState(false);
+
+  useEffect(() => {
+    if (!aberto) setTexto("");
+  }, [aberto]);
+
+  async function excluir() {
+    setExcluindo(true);
+    const { error } = await callEdgeFunction("excluir-dados", { body: { confirmacao: FRASE_EXCLUSAO } });
+    setExcluindo(false);
+    if (error) {
+      toast({ title: "Não foi possível excluir", description: error, variant: "destructive" });
+      return;
+    }
+    toast({ title: "Sua conta e seus dados foram excluídos" });
+    onExcluida();
+  }
+
+  return (
+    <AlertDialog open={aberto} onOpenChange={(v) => !v && !excluindo && onFechar()}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Excluir conta e dados?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Tudo será apagado de forma definitiva. Para confirmar, digite <strong>{FRASE_EXCLUSAO}</strong>.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <label htmlFor="confirmar-exclusao" className="sr-only">Frase de confirmação</label>
+        <input
+          id="confirmar-exclusao"
+          value={texto}
+          onChange={(e) => setTexto(e.target.value)}
+          autoComplete="off"
+          placeholder={FRASE_EXCLUSAO}
+          className="input-modern border-destructive/40 focus:border-destructive focus:ring-destructive/20"
+        />
+        <AlertDialogFooter className="gap-2">
+          <AlertDialogCancel disabled={excluindo} className="btn-secondary mt-0">Cancelar</AlertDialogCancel>
+          <button type="button" onClick={excluir} disabled={excluindo || texto.trim() !== FRASE_EXCLUSAO} className="btn-danger">
+            {excluindo ? "Excluindo…" : "Excluir definitivamente"}
+          </button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}

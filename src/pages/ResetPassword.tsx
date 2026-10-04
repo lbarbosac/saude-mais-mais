@@ -5,24 +5,13 @@ import { Navigate, useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/hooks/use-toast";
+import { forcaDaSenha } from "@/lib/validacao";
 
-function getPasswordStrength(p: string) {
-  if (!p) return { score: 0, label: "", color: "" };
-  let score = 0;
-  if (p.length >= 8)           score++;
-  if (p.length >= 12)          score++;
-  if (/[A-Z]/.test(p))         score++;
-  if (/[0-9]/.test(p))         score++;
-  if (/[^A-Za-z0-9]/.test(p)) score++;
-  if (score <= 1) return { score, label: "Fraca",    color: "bg-red-400" };
-  if (score <= 2) return { score, label: "Razoável", color: "bg-yellow-400" };
-  if (score <= 3) return { score, label: "Boa",      color: "bg-blue-400" };
-  return              { score, label: "Forte",    color: "bg-green-400" };
-}
+const COR_FORCA: Record<string, string> = { Fraca: "bg-red-400", "Razoável": "bg-yellow-400", Boa: "bg-blue-400", Forte: "bg-green-500" };
 
 const FADE = {
   hidden: { opacity: 0, y: 14 },
-  show:   { opacity: 1, y: 0, transition: { duration: 0.28, ease: "easeOut" } },
+  show:   { opacity: 1, y: 0, transition: { duration: 0.28, ease: "easeOut" as const } },
 };
 
 export default function ResetPassword() {
@@ -48,7 +37,7 @@ export default function ResetPassword() {
     );
   }
 
-  const strength = getPasswordStrength(password);
+  const strength = forcaDaSenha(password);
 
   async function handleReset(e: FormEvent) {
     e.preventDefault();
@@ -66,7 +55,7 @@ export default function ResetPassword() {
     setSubmitting(false);
 
     if (error) {
-      toast({ title: "Erro ao redefinir senha", description: error.message, variant: "destructive" });
+      toast({ title: "Não foi possível redefinir a senha", description: /same|different/i.test(error.message) ? "A nova senha precisa ser diferente da anterior." : "O link pode ter expirado. Peça um novo.", variant: "destructive" });
     } else {
       setDone(true);
       // Pequeno delay para o usuário ver a mensagem de sucesso
@@ -125,12 +114,12 @@ export default function ResetPassword() {
                     {[1, 2, 3, 4].map((i) => (
                       <div key={i} className={[
                         "h-full flex-1 rounded-full transition-all duration-300",
-                        strength.score >= i ? strength.color : "bg-muted",
+                        strength.pontos >= i ? COR_FORCA[strength.rotulo] : "bg-muted",
                       ].join(" ")} />
                     ))}
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Senha: <span className="font-medium text-foreground">{strength.label}</span>
+                    Senha: <span className="font-medium text-foreground">{strength.rotulo}</span>
                   </p>
                 </div>
               )}

@@ -1,58 +1,46 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 
-interface BeforeInstallPromptEvent extends Event {
+interface EventoInstalacao extends Event {
   prompt: () => Promise<void>;
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 }
 
+/**
+ * Registra o service worker (só no build de produção: em desenvolvimento ele
+ * atrapalharia o recarregamento do Vite) e expõe o convite de instalação.
+ */
 export function usePWA() {
-  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
-  const [isInstalled, setIsInstalled] = useState(false);
-  const [swRegistration, setSwRegistration] = useState<ServiceWorkerRegistration | null>(null);
+  const [convite, setConvite] = useState<EventoInstalacao | null>(null);
+  const [instalado, setInstalado] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(display-mode: standalone)").matches,
+  );
 
   useEffect(() => {
-    // Register service worker
-    if ("serviceWorker" in navigator) {
-      navigator.serviceWorker
-        .register("/sw.js")
-        .then((reg) => {
-          setSwRegistration(reg);
-          // SW registered successfully — scope: reg.scope
-        })
-        .catch((err) => console.error("[PWA] Falha ao registrar SW:", err));
+    if (import.meta.env.PROD && "serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").catch((e) => console.error("[PWA] falha ao registrar:", e));
     }
 
-    // Check if already installed (standalone mode)
-    if (window.matchMedia("(display-mode: standalone)").matches) {
-      setIsInstalled(true);
-    }
-
-    const handler = (e: Event) => {
+    const aoConvidar = (e: Event) => {
       e.preventDefault();
-      setInstallPrompt(e as BeforeInstallPromptEvent);
+      setConvite(e as EventoInstalacao);
     };
-
-    window.addEventListener("beforeinstallprompt", handler);
-
-    const installedHandler = () => setIsInstalled(true);
-    window.addEventListener("appinstalled", installedHandler);
-
+    const aoInstalar = () => setInstalado(true);
+    window.addEventListener("beforeinstallprompt", aoConvidar);
+    window.addEventListener("appinstalled", aoInstalar);
     return () => {
-      window.removeEventListener("beforeinstallprompt", handler);
-      window.removeEventListener("appinstalled", installedHandler);
+      window.removeEventListener("beforeinstallprompt", aoConvidar);
+      window.removeEventListener("appinstalled", aoInstalar);
     };
   }, []);
 
-  const install = async () => {
-    if (!installPrompt) return false;
-    await installPrompt.prompt();
-    const { outcome } = await installPrompt.userChoice;
-    if (outcome === "accepted") {
-      setInstallPrompt(null);
-      setIsInstalled(true);
-    }
+  async function instalar() {
+    if (!convite) return false;
+    await convite.prompt();
+    const { outcome } = await convite.userChoice;
+    setConvite(null);
+    if (outcome === "accepted") setInstalado(true);
     return outcome === "accepted";
-  };
+  }
 
-  return { installPrompt, isInstalled, install, swRegistration };
+  return { podeInstalar: !!convite && !instalado, instalar };
 }

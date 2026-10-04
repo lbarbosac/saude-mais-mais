@@ -1,143 +1,138 @@
-import { useState, useEffect, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { callEdgeFunction } from "@/lib/supabase/functions";
+import { supabase } from "@/lib/supabase/client";
 
-export type NotificationPermission = "default" | "granted" | "denied";
+export type PermissaoNotificacao = "default" | "granted" | "denied";
 
-function urlBase64ToUint8Array(base64String: string): Uint8Array {
-  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
-  const rawData = atob(base64);
-  return Uint8Array.from(rawData, (c) => c.charCodeAt(0));
+const CHAVE_HORA = "saude-reminder-hour";
+const VAPID = import.meta.env.VITE_VAPID_PUBLIC_KEY?.trim() ?? "";
+
+function base64UrlParaBytes(base64: string): Uint8Array<ArrayBuffer> {
+  const preenchimento = "=".repeat((4 - (base64.length % 4)) % 4);
+  const bruto = atob((base64 + preenchimento).replace(/-/g, "+").replace(/_/g, "/"));
+  const bytes = new Uint8Array(new ArrayBuffer(bruto.length));
+  for (let i = 0; i < bruto.length; i++) bytes[i] = bruto.charCodeAt(i);
+  return bytes;
+}
+
+function horaSalva(): number {
+  try {
+    const n = Number(localStorage.getItem(CHAVE_HORA));
+    return Number.isInteger(n) && n >= 0 && n <= 23 && localStorage.getItem(CHAVE_HORA) !== null ? n : 8;
+  } catch {
+    return 8;
+  }
 }
 
 /**
- * Web Push real (RFC 8030) — substitui o agendamento via setTimeout, que
- * só funcionava enquanto a aba/app permanecia aberto. Agora a inscrição é
- * enviada ao servidor; o disparo da notificação acontece via Edge Function
- * `enviar-lembretes-diarios` agendada por pg_cron, mesmo com o app fechado.
+ * Lembrete diário por Web Push. A inscrição vai para o servidor e o envio é
+ * feito pela função enviar-lembretes-diarios (pg_cron), mesmo com o app fechado.
  */
 export function usePushNotifications() {
-  const [permission, setPermission] = useState<NotificationPermission>("default");
-  const [reminderHour, setReminderHour] = useState<number>(8);
-  const [isSubscribed, setIsSubscribed] = useState(false);
-  const [isSubscribing, setIsSubscribing] = useState(false);
+  const suportado =
+    typeof window !== "undefined" && "Notification" in window && "serviceWorker" in navigator && "PushManager" in window;
+  const configurado = VAPID.length > 0;
 
-  const isSupported =
-    typeof window !== "undefined" &&
-    "Notification" in window &&
-    "serviceWorker" in navigator &&
-    "PushManager" in window;
+  const [permissao, setPermissao] = useState<PermissaoNotificacao>(() =>
+    suportado ? (Notification.permission as PermissaoNotificacao) : "default",
+  );
+  const [hora, setHora] = useState(horaSalva);
+  const [inscrito, setInscrito] = useState(false);
+  const [ocupado, setOcupado] = useState(false);
 
   useEffect(() => {
-    if ("Notification" in window) {
-      setPermission(Notification.permission as NotificationPermission);
-    }
-    const saved = localStorage.getItem("saude-reminder-hour");
-    if (saved !== null) setReminderHour(Number(saved));
+    if (!suportado) return;
+    let ativo = true;
+    navigator.serviceWorker.ready
+      .then((reg) => reg.pushManager.getSubscription())
+      .then((sub) => ativo && setInscrito(!!sub))
+      .catch(() => {});
+    return () => {
+      ativo = false;
+    };
+  }, [suportado]);
 
-    if (isSupported) {
-      navigator.serviceWorker.ready.then(async (reg) => {
-        const existing = await reg.pushManager.getSubscription();
-        setIsSubscribed(!!existing);
-      });
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const pedirPermissao = useCallback(async () => {
+    if (!suportado) return false;
+    const resultado = await Notification.requestPermission();
+    setPermissao(resultado as PermissaoNotificacao);
+    return resultado === "granted";
+  }, [suportado]);
 
-  const requestPermission = useCallback(async (): Promise<boolean> => {
-    if (!("Notification" in window)) return false;
-    const result = await Notification.requestPermission();
-    setPermission(result as NotificationPermission);
-    return result === "granted";
-  }, []);
+  /** Ativa (ou atualiza o horário do) lembrete. Devolve uma mensagem de erro ou null. */
+  const ativar = useCallback(
+    async (novaHora: number): Promise<string | null> => {
+      if (!suportado) return "Este navegador não suporta notificações.";
+      if (!configurado) return "Os lembretes não estão configurados neste ambiente.";
+      if (!import.meta.env.PROD) return "Os lembretes só funcionam na versão publicada (npm run build).";
+      setOcupado(true);
+      try {
+        if (Notification.permission !== "granted" && !(await pedirPermissao())) {
+          return "Permita as notificações no navegador para receber o lembrete.";
+        }
+        const reg = await navigator.serviceWorker.ready;
+        const sub =
+          (await reg.pushManager.getSubscription()) ??
+          (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64UrlParaBytes(VAPID) }));
+        const json = sub.toJSON();
 
-  /**
-   * Inscreve o navegador para Web Push e envia a inscrição ao servidor.
-   * hour: horário local (0-23) em que o usuário quer receber o lembrete.
-   */
-  const subscribe = useCallback(async (hour: number): Promise<boolean> => {
-    if (!isSupported) return false;
-
-    setIsSubscribing(true);
-    try {
-      const granted = permission === "granted" || (await requestPermission());
-      if (!granted) return false;
-
-      const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY as string | undefined;
-      if (!vapidPublicKey) {
-        console.error("[usePushNotifications] VITE_VAPID_PUBLIC_KEY não configurada");
-        return false;
-      }
-
-      const reg = await navigator.serviceWorker.ready;
-      let subscription = await reg.pushManager.getSubscription();
-
-      if (!subscription) {
-        subscription = await reg.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
+        const { error } = await callEdgeFunction("salvar-push-subscription", {
+          body: {
+            endpoint: json.endpoint,
+            keys: json.keys,
+            reminderHour: novaHora,
+            timezoneOffsetMinutes: new Date().getTimezoneOffset(),
+          },
         });
+        if (error) return error;
+
+        setHora(novaHora);
+        setInscrito(true);
+        try {
+          localStorage.setItem(CHAVE_HORA, String(novaHora));
+        } catch {
+          // só afeta o valor inicial do seletor
+        }
+        return null;
+      } catch (e) {
+        console.error("[push] falha ao ativar:", e);
+        return "Não foi possível ativar os lembretes neste navegador.";
+      } finally {
+        setOcupado(false);
       }
+    },
+    [suportado, configurado, pedirPermissao],
+  );
 
-      const json = subscription.toJSON();
-      if (!json.endpoint || !json.keys?.p256dh || !json.keys?.auth) return false;
-
-      const { error } = await callEdgeFunction("salvar-push-subscription", {
-        body: {
-          endpoint: json.endpoint,
-          keys: { p256dh: json.keys.p256dh, auth: json.keys.auth },
-          reminderHour: hour,
-          timezoneOffsetMinutes: new Date().getTimezoneOffset(),
-        },
-      });
-
-      if (error) {
-        console.error("[usePushNotifications] erro ao salvar inscrição:", error);
-        return false;
+  const desativar = useCallback(async (): Promise<string | null> => {
+    if (!suportado) return null;
+    setOcupado(true);
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (sub) {
+        await supabase.from("push_subscriptions").delete().eq("endpoint", sub.endpoint);
+        await sub.unsubscribe();
       }
-
-      setReminderHour(hour);
-      setIsSubscribed(true);
-      localStorage.setItem("saude-reminder-hour", String(hour));
-      return true;
+      setInscrito(false);
+      return null;
+    } catch (e) {
+      console.error("[push] falha ao desativar:", e);
+      return "Não foi possível desativar os lembretes.";
     } finally {
-      setIsSubscribing(false);
+      setOcupado(false);
     }
-  }, [isSupported, permission, requestPermission]);
+  }, [suportado]);
 
-  const unsubscribe = useCallback(async () => {
-    if (!isSupported) return;
+  const testar = useCallback(async () => {
+    if (Notification.permission !== "granted" && !(await pedirPermissao())) return;
     const reg = await navigator.serviceWorker.ready;
-    const subscription = await reg.pushManager.getSubscription();
-    if (subscription) await subscription.unsubscribe();
-    setIsSubscribed(false);
-  }, [isSupported]);
-
-  const sendTestNotification = useCallback(async () => {
-    if (permission !== "granted") {
-      const ok = await requestPermission();
-      if (!ok) return;
-    }
-    if (!("serviceWorker" in navigator)) return;
-    const reg = await navigator.serviceWorker.ready;
-    // Notificação local imediata, só para testar permissão do navegador —
-    // o lembrete diário real chega via push do servidor mesmo com o app fechado
-    reg.showNotification("Saúde em Sintonia", {
-      body: "Suas notificações estão funcionando!",
+    await reg.showNotification("Saúde++", {
+      body: "Tudo certo: suas notificações estão funcionando.",
       icon: "/icons/icon-192.png",
       tag: "teste",
     });
-  }, [permission, requestPermission]);
+  }, [pedirPermissao]);
 
-  return {
-    permission,
-    reminderHour,
-    isSubscribed,
-    isSubscribing,
-    isSupported,
-    requestPermission,
-    subscribe,
-    unsubscribe,
-    sendTestNotification,
-  };
+  return { suportado, configurado, permissao, hora, inscrito, ocupado, ativar, desativar, testar };
 }

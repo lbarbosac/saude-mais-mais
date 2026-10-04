@@ -5,6 +5,9 @@ import { Navigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/hooks/use-toast";
+import { emailValido, forcaDaSenha, validarCadastro, validarLogin } from "@/lib/validacao";
+
+const VERSAO_TERMOS = "2.0";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 type AuthMode = "login" | "signup" | "forgot";
@@ -22,40 +25,12 @@ function getEmailSuggestions(value: string): string[] {
 }
 
 // ─── Força da senha ───────────────────────────────────────────────────────────
-function getPasswordStrength(p: string) {
-  if (!p) return { score: 0, label: "", color: "" };
-  let score = 0;
-  if (p.length >= 8)           score++;
-  if (p.length >= 12)          score++;
-  if (/[A-Z]/.test(p))         score++;
-  if (/[0-9]/.test(p))         score++;
-  if (/[^A-Za-z0-9]/.test(p)) score++;
-  if (score <= 1) return { score, label: "Fraca",    color: "bg-red-400" };
-  if (score <= 2) return { score, label: "Razoável", color: "bg-yellow-400" };
-  if (score <= 3) return { score, label: "Boa",      color: "bg-blue-400" };
-  return              { score, label: "Forte",    color: "bg-green-400" };
-}
-
-// ─── Validação ────────────────────────────────────────────────────────────────
-function isValidEmail(e: string) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.trim());
-}
-function validateSignup(f: FormState): string | null {
-  if (!f.name.trim() || f.name.trim().length < 2) return "Informe seu nome (mínimo 2 caracteres).";
-  if (!isValidEmail(f.email))  return "E-mail inválido.";
-  if (f.password.length < 8)   return "A senha deve ter pelo menos 8 caracteres.";
-  return null;
-}
-function validateLogin(f: Pick<FormState, "email" | "password">): string | null {
-  if (!isValidEmail(f.email)) return "E-mail inválido.";
-  if (!f.password)             return "Informe sua senha.";
-  return null;
-}
+const COR_FORCA: Record<string, string> = { Fraca: "bg-red-400", "Razoável": "bg-yellow-400", Boa: "bg-blue-400", Forte: "bg-green-500" };
 
 // ─── Animação ─────────────────────────────────────────────────────────────────
 const FADE = {
   hidden: { opacity: 0, y: 14 },
-  show:   { opacity: 1, y: 0, transition: { duration: 0.28, ease: "easeOut" } },
+  show:   { opacity: 1, y: 0, transition: { duration: 0.28, ease: "easeOut" as const } },
 };
 
 // ─── Componente ───────────────────────────────────────────────────────────────
@@ -70,12 +45,13 @@ export default function LoginPage() {
   const [showSug, setShowSug]     = useState(false);
   const [resetSent, setResetSent] = useState(false);
   const [consentAccepted, setConsentAccepted] = useState(false);
+  const [confirmarEmail, setConfirmarEmail] = useState<string | null>(null);
 
   if (!authLoading && user) return <Navigate to="/" replace />;
 
   const isSignup  = mode === "signup";
   const isForgot  = mode === "forgot";
-  const strength  = isSignup ? getPasswordStrength(form.password) : null;
+  const strength  = isSignup ? forcaDaSenha(form.password) : null;
 
   function onFieldChange(field: keyof FormState) {
     return (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -105,54 +81,52 @@ export default function LoginPage() {
       toast({ title: "Aceite os Termos de Uso e a Política de Privacidade para continuar.", variant: "destructive" });
       return;
     }
-    const err = validateSignup(form);
+    const err = validarCadastro({ nome: form.name, email: form.email, senha: form.password });
     if (err) { toast({ title: err, variant: "destructive" }); return; }
 
     setSubmitting(true);
-    const { error } = await supabase.auth.signUp({
-      email: form.email.trim().toLowerCase(),
+    const email = form.email.trim().toLowerCase();
+    // O aceite dos termos vai nos metadados; o gatilho do banco registra o
+    // consentimento junto com a criação da conta.
+    const { data, error } = await supabase.auth.signUp({
+      email,
       password: form.password,
       options: {
+        emailRedirectTo: `${window.location.origin}/`,
         data: {
           nome: form.name.trim(),
-          full_name: form.name.trim(),
-          consentimento_lgpd: new Date().toISOString(),
-          versao_termos: "1.0",
+          versao_termos: VERSAO_TERMOS,
+          user_agent: navigator.userAgent.slice(0, 200),
         },
       },
     });
+    setSubmitting(false);
 
     if (error) {
-      const msg = error.message.toLowerCase().includes("already registered")
+      const msg = /already registered|already exists/i.test(error.message)
         ? "Este e-mail já está cadastrado. Tente entrar."
-        : error.message;
+        : /password/i.test(error.message)
+          ? "Escolha uma senha mais forte."
+          : "Não foi possível criar a conta agora. Tente de novo.";
       toast({ title: "Erro ao criar conta", description: msg, variant: "destructive" });
-      setSubmitting(false);
       return;
     }
 
-    // Login automático após cadastro
-    const { data: loginData } = await supabase.auth.signInWithPassword({
-      email: form.email.trim().toLowerCase(),
-      password: form.password,
-    });
+    // Com confirmação de e-mail ligada no Supabase não há sessão ainda:
+    // a pessoa precisa clicar no link enviado.
+    if (!data.session) setConfirmarEmail(email);
+  }
 
-    // Salva registro de consentimento LGPD
-    if (loginData?.user) {
-      supabase.from("consentimento_usuario").insert({
-        user_id: loginData.user.id,
-        versao_termos: "1.0",
-        user_agent: navigator.userAgent.slice(0, 200),
-      }).then(); // fire-and-forget
-    }
-
-    setSubmitting(false);
+  async function reenviarConfirmacao() {
+    if (!confirmarEmail) return;
+    const { error } = await supabase.auth.resend({ type: "signup", email: confirmarEmail, options: { emailRedirectTo: `${window.location.origin}/` } });
+    toast(error ? { title: "Não foi possível reenviar agora", variant: "destructive" } : { title: "E-mail reenviado" });
   }
 
   // ── Login ─────────────────────────────────────────────────────────────────
   async function handleSignIn(e: FormEvent) {
     e.preventDefault();
-    const err = validateLogin(form);
+    const err = validarLogin({ email: form.email, senha: form.password });
     if (err) { toast({ title: err, variant: "destructive" }); return; }
 
     setSubmitting(true);
@@ -163,11 +137,14 @@ export default function LoginPage() {
     setSubmitting(false);
 
     if (error) {
-      const isWrong = error.message.toLowerCase().includes("invalid login credentials")
-        || error.message.toLowerCase().includes("invalid credentials");
+      if (/not confirmed/i.test(error.message)) {
+        setConfirmarEmail(form.email.trim().toLowerCase());
+        return;
+      }
+      const errado = /invalid (login )?credentials/i.test(error.message);
       toast({
-        title: "Erro ao entrar",
-        description: isWrong ? "E-mail ou senha incorretos." : error.message,
+        title: "Não foi possível entrar",
+        description: errado ? "E-mail ou senha incorretos." : "Tente de novo em instantes.",
         variant: "destructive",
       });
     }
@@ -176,7 +153,7 @@ export default function LoginPage() {
   // ── Recuperação de senha ──────────────────────────────────────────────────
   async function handleForgot(e: FormEvent) {
     e.preventDefault();
-    if (!isValidEmail(form.email)) {
+    if (!emailValido(form.email)) {
       toast({ title: "Informe um e-mail válido.", variant: "destructive" });
       return;
     }
@@ -189,10 +166,35 @@ export default function LoginPage() {
     setSubmitting(false);
 
     if (error) {
-      toast({ title: "Erro ao enviar e-mail", description: error.message, variant: "destructive" });
+      toast({ title: "Não foi possível enviar o e-mail", description: "Tente de novo em alguns minutos.", variant: "destructive" });
     } else {
       setResetSent(true);
     }
+  }
+
+  // ── Render: confirmação de e-mail ─────────────────────────────────────────
+  if (confirmarEmail) {
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center bg-background px-6 py-12">
+        <motion.div variants={FADE} initial="hidden" animate="show" className="flex w-full max-w-sm flex-col items-center gap-5 text-center">
+          <div className="flex h-16 w-16 items-center justify-center rounded-3xl gradient-hero shadow-elevated">
+            <Mail className="h-8 w-8 text-primary-foreground" aria-hidden />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">Confirme seu e-mail</h1>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+              Enviamos um link para <strong className="text-foreground">{confirmarEmail}</strong>. Abra o e-mail e toque no
+              link para ativar sua conta. Confira também a caixa de spam.
+            </p>
+          </div>
+          <button type="button" onClick={reenviarConfirmacao} className="btn-secondary w-full">Reenviar e-mail</button>
+          <button type="button" onClick={() => { setConfirmarEmail(null); switchMode("login"); }}
+            className="text-sm font-medium text-primary underline-offset-4 hover:underline">
+            Voltar para o login
+          </button>
+        </motion.div>
+      </main>
+    );
   }
 
   // ── Render: Recuperação de senha ──────────────────────────────────────────
@@ -351,12 +353,12 @@ export default function LoginPage() {
                     {[1, 2, 3, 4].map((i) => (
                       <div key={i} className={[
                         "h-full flex-1 rounded-full transition-all duration-300",
-                        strength.score >= i ? strength.color : "bg-muted",
+                        strength.pontos >= i ? COR_FORCA[strength.rotulo] : "bg-muted",
                       ].join(" ")} />
                     ))}
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Senha: <span className="font-medium text-foreground">{strength.label}</span>
+                    Senha: <span className="font-medium text-foreground">{strength.rotulo}</span>
                   </p>
                 </div>
               )}
@@ -399,7 +401,7 @@ export default function LoginPage() {
             )}
 
             {/* Botão principal */}
-            <button type="submit" disabled={submitting}
+            <button type="submit"
               disabled={submitting || (isSignup && !consentAccepted)}
               className="mt-1 flex w-full items-center justify-center gap-2 rounded-2xl gradient-calm py-4 font-semibold text-primary-foreground shadow-soft transition-all hover:shadow-elevated disabled:cursor-not-allowed disabled:opacity-60">
               {submitting && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}

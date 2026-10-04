@@ -1,326 +1,351 @@
-import { useState, useEffect, useRef } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { User, Activity, Brain, Target, ChevronRight, Settings, Camera, Loader2, Save, Users } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Activity, Brain, Camera, Loader2, Pencil, Settings, Target, Users } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/hooks/use-toast";
+import { Avatar } from "@/components/Avatar";
+import { ErroCarregamento } from "@/components/ErroCarregamento";
+import { TelaCarregando } from "@/components/ui/loading-spinner";
+import {
+  HUMOR_GERAL, NIVEL_ATIVIDADE, NIVEL_ESTRESSE, OBJETIVO, QUALIDADE_SONO, ROTINA, SEXO, rotulo,
+} from "@/lib/rotulos";
+import { normalizarNickname, validarPerfil, type CamposPerfil } from "@/lib/validacao";
 
-interface PerfilData {
-  nome: string;
-  nickname: string;
-  avatar_url: string;
-  idade: number | null;
-  peso: number | null;
-  altura: number | null;
-  sexo: string;
-  nivel_atividade: string;
-  nivel_estresse: string;
-  qualidade_sono: string;
-  humor_geral: string;
-  rotina: string;
-  objetivo: string;
-  tempo_livre: string;
-  onboarding_completo: boolean;
+interface Perfil extends CamposPerfil {
+  avatar_url: string | null;
 }
 
-const defaultPerfil: PerfilData = {
-  nome: "", nickname: "", avatar_url: "", idade: null, peso: null, altura: null,
-  sexo: "", nivel_atividade: "", nivel_estresse: "", qualidade_sono: "",
-  humor_geral: "", rotina: "", objetivo: "", tempo_livre: "", onboarding_completo: false,
-};
+const TIPOS_IMAGEM = ["image/jpeg", "image/png", "image/webp"];
+const CAMPOS = "nome, nickname, avatar_url, idade, peso, altura, sexo, nivel_atividade, nivel_estresse, qualidade_sono, humor_geral, rotina, objetivo, tempo_livre";
 
-const Profile = () => {
-  const navigate = useNavigate();
+export default function Profile() {
   const { user } = useAuth();
-  const [perfil, setPerfil] = useState<PerfilData>(defaultPerfil);
-  const [editing, setEditing] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const queryClient = useQueryClient();
+  const chave = ["perfil", user?.id, "completo"];
+  const [editando, setEditando] = useState(false);
 
-  useEffect(() => {
-    if (user) loadPerfil();
-  }, [user]);
+  const perfil = useQuery({
+    queryKey: chave,
+    enabled: !!user,
+    queryFn: async (): Promise<Perfil> => {
+      const { data, error } = await supabase.from("perfil_usuario").select(CAMPOS).eq("user_id", user!.id).single();
+      if (error) throw error;
+      return data as Perfil;
+    },
+  });
 
-  const loadPerfil = async () => {
-    const { data } = await supabase
-      .from("perfil_usuario")
-      .select("*")
-      .eq("user_id", user!.id)
-      .single();
-    if (data) setPerfil(data as unknown as PerfilData);
-    setLoading(false);
+  if (perfil.isLoading) return <TelaCarregando cheia={false} />;
+  if (perfil.isError || !perfil.data) return <ErroCarregamento mensagem="Não foi possível carregar seu perfil." onTentar={() => perfil.refetch()} />;
+
+  const atualizarCache = (p: Partial<Perfil>) => {
+    queryClient.setQueryData<Perfil>(chave, (atual) => (atual ? { ...atual, ...p } : atual));
+    queryClient.invalidateQueries({ queryKey: ["perfil", user?.id, "nome"] });
+    queryClient.invalidateQueries({ queryKey: ["onboarding"] });
   };
-
-  const savePerfil = async () => {
-    setSaving(true);
-    const { error } = await supabase
-      .from("perfil_usuario")
-      .update({
-        nome: perfil.nome,
-        nickname: perfil.nickname || null,
-        idade: perfil.idade,
-        peso: perfil.peso,
-        altura: perfil.altura,
-        sexo: perfil.sexo || null,
-        nivel_atividade: perfil.nivel_atividade || null,
-        nivel_estresse: perfil.nivel_estresse || null,
-        qualidade_sono: perfil.qualidade_sono || null,
-        humor_geral: perfil.humor_geral || null,
-        rotina: perfil.rotina || null,
-        objetivo: perfil.objetivo || null,
-        tempo_livre: perfil.tempo_livre || null,
-        onboarding_completo: true,
-      })
-      .eq("user_id", user!.id);
-    setSaving(false);
-    if (error) {
-      toast({ title: "Erro ao salvar", description: error.message, variant: "destructive" });
-    } else {
-      toast({ title: "Perfil salvo com sucesso!" });
-      setEditing(false);
-    }
-  };
-
-  const uploadAvatar = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    // Validate file type
-    const validTypes = ["image/jpeg", "image/png", "image/webp"];
-    if (!validTypes.includes(file.type)) {
-      toast({ title: "Formato inválido. Use JPEG, PNG ou WebP.", variant: "destructive" });
-      return;
-    }
-
-    // Validate file size (max 5MB)
-    if (file.size > 5 * 1024 * 1024) {
-      toast({ title: "Arquivo muito grande. Máximo 5 MB.", variant: "destructive" });
-      return;
-    }
-
-    setUploading(true);
-    // Nome fixo por usuário (não timestamp) — evita acúmulo de arquivos antigos.
-    // upsert:true substitui o arquivo existente sem criar duplicatas no bucket.
-    const ext = file.name.split(".").pop()?.toLowerCase() ?? "jpg";
-    const path = `${user!.id}/avatar.${ext}`;
-    const { error: upError } = await supabase.storage.from("avatars").upload(path, file, { upsert: true });
-    if (upError) {
-      toast({ title: "Erro ao enviar foto", variant: "destructive" });
-      setUploading(false);
-      return;
-    }
-    const { data: { publicUrl } } = supabase.storage.from("avatars").getPublicUrl(path);
-    await supabase.from("perfil_usuario").update({ avatar_url: publicUrl }).eq("user_id", user!.id);
-    setPerfil((p) => ({ ...p, avatar_url: publicUrl }));
-    setUploading(false);
-  };
-
-  const SelectField = ({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: { value: string; label: string }[] }) => (
-    <div className="flex flex-col gap-1.5">
-      <label className="label-modern">{label}</label>
-      {editing ? (
-        <select value={value} onChange={(e) => onChange(e.target.value)} className="input-modern">
-          <option value="">Selecione</option>
-          {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
-      ) : (
-        <p className="rounded-xl bg-muted px-4 py-3 text-sm font-medium text-foreground">{options.find((o) => o.value === value)?.label || "Não informado"}</p>
-      )}
-    </div>
-  );
-
-  if (loading) {
-    return <div className="flex min-h-[60vh] items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>;
-  }
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Meu Perfil</h1>
-          <p className="text-sm text-muted-foreground">Gerencie seus dados</p>
+          <h1 className="text-2xl font-bold text-foreground">Meu perfil</h1>
+          <p className="text-sm text-muted-foreground">Seus dados deixam hábitos, treinos e conversas mais certeiros</p>
         </div>
         <div className="flex gap-2">
-          <button onClick={() => navigate("/amigos")} className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted text-muted-foreground hover:text-foreground">
-            <Users className="h-5 w-5" />
+          <Link to="/amigos" aria-label="Amigos" className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted text-muted-foreground hover:text-foreground">
+            <Users className="h-5 w-5" aria-hidden />
+          </Link>
+          <Link to="/configuracoes" aria-label="Configurações" className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted text-muted-foreground hover:text-foreground">
+            <Settings className="h-5 w-5" aria-hidden />
+          </Link>
+        </div>
+      </div>
+
+      <Cabecalho perfil={perfil.data} userId={user!.id} onAvatar={(url) => atualizarCache({ avatar_url: url })} />
+
+      {editando ? (
+        <FormularioPerfil
+          inicial={perfil.data}
+          userId={user!.id}
+          onCancelar={() => setEditando(false)}
+          onSalvo={(p) => {
+            atualizarCache(p);
+            setEditando(false);
+          }}
+        />
+      ) : (
+        <>
+          <Bloco icone={Activity} titulo="Dados físicos">
+            <Linha nome="Idade" valor={perfil.data.idade ? `${perfil.data.idade} anos` : null} />
+            <Linha nome="Peso" valor={perfil.data.peso ? `${String(perfil.data.peso).replace(".", ",")} kg` : null} />
+            <Linha nome="Altura" valor={perfil.data.altura ? `${String(perfil.data.altura).replace(".", ",")} m` : null} />
+            <Linha nome="Sexo" valor={rotulo(SEXO, perfil.data.sexo)} />
+            <Linha nome="Atividade física" valor={rotulo(NIVEL_ATIVIDADE, perfil.data.nivel_atividade)} />
+          </Bloco>
+          <Bloco icone={Brain} titulo="Saúde mental">
+            <Linha nome="Estresse" valor={rotulo(NIVEL_ESTRESSE, perfil.data.nivel_estresse)} />
+            <Linha nome="Sono" valor={rotulo(QUALIDADE_SONO, perfil.data.qualidade_sono)} />
+            <Linha nome="Humor geral" valor={rotulo(HUMOR_GERAL, perfil.data.humor_geral)} />
+          </Bloco>
+          <Bloco icone={Target} titulo="Objetivos">
+            <Linha nome="Objetivo" valor={rotulo(OBJETIVO, perfil.data.objetivo)} />
+            <Linha nome="Rotina" valor={rotulo(ROTINA, perfil.data.rotina)} />
+            <Linha nome="Tempo livre por dia" valor={perfil.data.tempo_livre} />
+          </Bloco>
+          <button type="button" onClick={() => setEditando(true)} className="btn-secondary py-4 text-primary">
+            <Pencil className="h-4 w-4" aria-hidden />
+            Editar perfil
           </button>
-          <button onClick={() => navigate("/configuracoes")} className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted text-muted-foreground hover:text-foreground">
-            <Settings className="h-5 w-5" />
-          </button>
-        </div>
-      </div>
-
-      {/* Avatar */}
-      <div className="flex items-center gap-4 rounded-2xl gradient-calm p-5 text-primary-foreground">
-        <div className="relative">
-          <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl bg-primary-foreground/20">
-            {perfil.avatar_url ? (
-              <img src={perfil.avatar_url} alt="Avatar" className="h-full w-full object-cover" />
-            ) : (
-              <User className="h-8 w-8" />
-            )}
-          </div>
-          {editing && (
-            <button onClick={() => fileRef.current?.click()} className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full bg-primary-foreground text-primary shadow">
-              {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Camera className="h-3.5 w-3.5" />}
-            </button>
-          )}
-          <input ref={fileRef} type="file" accept="image/*" onChange={uploadAvatar} className="hidden" />
-        </div>
-        <div className="flex-1">
-          {editing ? (
-            <div className="flex flex-col gap-1">
-              <input value={perfil.nome} onChange={(e) => setPerfil((p) => ({ ...p, nome: e.target.value }))} placeholder="Seu nome" className="bg-transparent text-lg font-bold placeholder:text-primary-foreground/50 outline-none" />
-              <div className="flex items-center gap-1">
-                <span className="text-xs opacity-60">@</span>
-                <input value={perfil.nickname} onChange={(e) => setPerfil((p) => ({ ...p, nickname: e.target.value }))} placeholder="nickname" className="bg-transparent text-sm opacity-80 placeholder:text-primary-foreground/50 outline-none" />
-              </div>
-            </div>
-          ) : (
-            <>
-              <p className="text-lg font-bold">{perfil.nome || "Usuario"}</p>
-              <p className="text-sm opacity-80">{perfil.nickname ? `@${perfil.nickname}` : "Defina seu nickname"}</p>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* Dados fisicos */}
-      <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
-        <div className="mb-4 flex items-center gap-2">
-          <Activity className="h-4 w-4 text-primary" />
-          <p className="label-modern">Dados físicos</p>
-        </div>
-        <div className="flex flex-col gap-3">
-          {editing ? (
-            <>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="flex flex-col gap-1.5">
-                  <label className="label-modern">Idade</label>
-                  <input type="number" value={perfil.idade || ""} onChange={(e) => setPerfil((p) => ({ ...p, idade: Number(e.target.value) || null }))} className="input-modern" />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <label className="label-modern">Peso (kg)</label>
-                  <input type="number" step="0.1" value={perfil.peso || ""} onChange={(e) => setPerfil((p) => ({ ...p, peso: Number(e.target.value) || null }))} className="input-modern" />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="flex flex-col gap-1.5">
-                  <label className="label-modern">Altura (m)</label>
-                  <input type="number" step="0.01" value={perfil.altura || ""} onChange={(e) => setPerfil((p) => ({ ...p, altura: Number(e.target.value) || null }))} className="input-modern" />
-                </div>
-                <SelectField label="Sexo" value={perfil.sexo} onChange={(v) => setPerfil((p) => ({ ...p, sexo: v }))} options={[{ value: "masculino", label: "Masculino" }, { value: "feminino", label: "Feminino" }, { value: "outro", label: "Outro" }, { value: "prefiro_nao_dizer", label: "Prefiro não dizer" }]} />
-              </div>
-              <SelectField label="Nível de atividade" value={perfil.nivel_atividade} onChange={(v) => setPerfil((p) => ({ ...p, nivel_atividade: v }))} options={[{ value: "sedentario", label: "Sedentário" }, { value: "leve", label: "Leve" }, { value: "moderado", label: "Moderado" }, { value: "intenso", label: "Intenso" }]} />
-            </>
-          ) : (
-            <>
-              {[
-                { label: "Idade", value: perfil.idade ? `${perfil.idade} anos` : "Não informado" },
-                { label: "Peso", value: perfil.peso ? `${perfil.peso} kg` : "Não informado" },
-                { label: "Altura", value: perfil.altura ? `${perfil.altura} m` : "Não informado" },
-                { label: "Sexo", value: perfil.sexo || "Não informado" },
-                { label: "Atividade física", value: perfil.nivel_atividade || "Não informado" },
-              ].map((f) => (
-                <div key={f.label} className="flex items-center justify-between rounded-xl bg-muted px-4 py-3">
-                  <span className="text-sm text-muted-foreground">{f.label}</span>
-                  <span className="text-sm font-medium text-foreground capitalize">{f.value}</span>
-                </div>
-              ))}
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* Saude mental */}
-      <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
-        <div className="mb-4 flex items-center gap-2">
-          <Brain className="h-4 w-4 text-primary" />
-          <p className="label-modern">Saúde mental</p>
-        </div>
-        <div className="flex flex-col gap-3">
-          {editing ? (
-            <>
-              <SelectField label="Nível de estresse" value={perfil.nivel_estresse} onChange={(v) => setPerfil((p) => ({ ...p, nivel_estresse: v }))} options={[{ value: "baixo", label: "Baixo" }, { value: "moderado", label: "Moderado" }, { value: "alto", label: "Alto" }]} />
-              <SelectField label="Qualidade do sono" value={perfil.qualidade_sono} onChange={(v) => setPerfil((p) => ({ ...p, qualidade_sono: v }))} options={[{ value: "boa", label: "Boa" }, { value: "irregular", label: "Irregular" }, { value: "ruim", label: "Ruim" }]} />
-              <SelectField label="Humor geral" value={perfil.humor_geral} onChange={(v) => setPerfil((p) => ({ ...p, humor_geral: v }))} options={[{ value: "bom", label: "Bom" }, { value: "variavel", label: "Variável" }, { value: "ruim", label: "Ruim" }]} />
-            </>
-          ) : (
-            <>
-              {[
-                { label: "Estresse", value: perfil.nivel_estresse || "Não informado" },
-                { label: "Sono", value: perfil.qualidade_sono || "Não informado" },
-                { label: "Humor", value: perfil.humor_geral || "Não informado" },
-              ].map((f) => (
-                <div key={f.label} className="flex items-center justify-between rounded-xl bg-muted px-4 py-3">
-                  <span className="text-sm text-muted-foreground">{f.label}</span>
-                  <span className="text-sm font-medium text-foreground capitalize">{f.value}</span>
-                </div>
-              ))}
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* Objetivos */}
-      <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
-        <div className="mb-4 flex items-center gap-2">
-          <Target className="h-4 w-4 text-primary" />
-          <p className="label-modern">Objetivos</p>
-        </div>
-        <div className="flex flex-col gap-3">
-          {editing ? (
-            <>
-              <SelectField label="Rotina" value={perfil.rotina} onChange={(v) => setPerfil((p) => ({ ...p, rotina: v }))} options={[{ value: "trabalho", label: "Trabalho" }, { value: "estudo", label: "Estudo" }, { value: "ambos", label: "Ambos" }, { value: "nenhum", label: "Nenhum" }]} />
-              <div className="flex flex-col gap-1.5">
-                <label className="label-modern">Objetivo principal</label>
-                <input value={perfil.objetivo || ""} onChange={(e) => setPerfil((p) => ({ ...p, objetivo: e.target.value }))} placeholder="Ex: melhorar saúde mental" className="input-modern" />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <label className="label-modern">Tempo livre diario</label>
-                <input value={perfil.tempo_livre || ""} onChange={(e) => setPerfil((p) => ({ ...p, tempo_livre: e.target.value }))} placeholder="Ex: 1-3 horas" className="input-modern" />
-              </div>
-            </>
-          ) : (
-            <>
-              {[
-                { label: "Rotina", value: perfil.rotina || "Não informado" },
-                { label: "Objetivo", value: perfil.objetivo || "Não informado" },
-                { label: "Tempo livre", value: perfil.tempo_livre || "Não informado" },
-              ].map((f) => {
-                const isLong = f.value.length > 22;
-                return (
-                  <div
-                    key={f.label}
-                    className={`rounded-xl bg-muted px-4 py-3 ${
-                      isLong ? "flex flex-col gap-1" : "flex items-center justify-between gap-3"
-                    }`}
-                  >
-                    <span className="text-xs font-medium text-muted-foreground shrink-0">{f.label}</span>
-                    <span className={`text-sm font-medium text-foreground capitalize break-words ${isLong ? "" : "text-right"}`}>
-                      {f.value}
-                    </span>
-                  </div>
-                );
-              })}
-            </>
-          )}
-        </div>
-      </div>
-
-      <button
-        onClick={() => editing ? savePerfil() : setEditing(true)}
-        disabled={saving}
-        className="flex items-center justify-center gap-2 rounded-2xl border border-border bg-card py-4 text-sm font-medium text-primary transition-colors hover:bg-muted disabled:opacity-50"
-      >
-        {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : editing ? <Save className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-        {saving ? "Salvando..." : editing ? "Salvar perfil" : "Editar perfil"}
-      </button>
+        </>
+      )}
     </motion.div>
   );
-};
+}
 
-export default Profile;
+function Cabecalho({ perfil, userId, onAvatar }: { perfil: Perfil; userId: string; onAvatar: (url: string) => void }) {
+  const arquivoRef = useRef<HTMLInputElement>(null);
+  const [enviando, setEnviando] = useState(false);
+
+  async function enviarFoto(arquivo: File) {
+    if (!TIPOS_IMAGEM.includes(arquivo.type)) {
+      toast({ title: "Use uma imagem JPG, PNG ou WebP", variant: "destructive" });
+      return;
+    }
+    if (arquivo.size > 2 * 1024 * 1024) {
+      toast({ title: "A imagem precisa ter até 2 MB", variant: "destructive" });
+      return;
+    }
+    setEnviando(true);
+    try {
+      const extensao = arquivo.type.split("/")[1].replace("jpeg", "jpg");
+      const caminho = `${userId}/avatar.${extensao}`;
+      const envio = await supabase.storage.from("avatars").upload(caminho, arquivo, { upsert: true, contentType: arquivo.type });
+      if (envio.error) throw envio.error;
+
+      // Remove avatares antigos com outra extensão.
+      const { data: arquivos } = await supabase.storage.from("avatars").list(userId);
+      const antigos = (arquivos ?? []).map((a) => `${userId}/${a.name}`).filter((c) => c !== caminho);
+      if (antigos.length) await supabase.storage.from("avatars").remove(antigos);
+
+      // O parâmetro v força o navegador a buscar a foto nova (a URL é a mesma).
+      const url = `${supabase.storage.from("avatars").getPublicUrl(caminho).data.publicUrl}?v=${Date.now()}`;
+      const { error } = await supabase.from("perfil_usuario").update({ avatar_url: url }).eq("user_id", userId);
+      if (error) throw error;
+      onAvatar(url);
+      toast({ title: "Foto atualizada" });
+    } catch {
+      toast({ title: "Não foi possível enviar a foto", variant: "destructive" });
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-4 rounded-2xl gradient-calm p-5 text-primary-foreground">
+      <div className="relative">
+        <Avatar url={perfil.avatar_url} nome={perfil.nome} className="h-16 w-16 rounded-2xl bg-primary-foreground/20 text-2xl text-primary-foreground" />
+        <button
+          type="button"
+          onClick={() => arquivoRef.current?.click()}
+          disabled={enviando}
+          aria-label="Trocar foto do perfil"
+          className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full bg-primary-foreground text-primary shadow"
+        >
+          {enviando ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <Camera className="h-3.5 w-3.5" aria-hidden />}
+        </button>
+        <input
+          ref={arquivoRef}
+          type="file"
+          accept={TIPOS_IMAGEM.join(",")}
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            e.target.value = "";
+            if (f) enviarFoto(f);
+          }}
+        />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-lg font-bold">{perfil.nome || "Sem nome"}</p>
+        <p className="truncate text-sm opacity-90">{perfil.nickname ? `@${perfil.nickname}` : "Defina um nickname para ser encontrado"}</p>
+      </div>
+    </div>
+  );
+}
+
+function FormularioPerfil({
+  inicial, userId, onCancelar, onSalvo,
+}: {
+  inicial: Perfil;
+  userId: string;
+  onCancelar: () => void;
+  onSalvo: (p: Partial<Perfil>) => void;
+}) {
+  const [f, setF] = useState(() => ({
+    ...inicial,
+    idade: inicial.idade?.toString() ?? "",
+    peso: inicial.peso?.toString().replace(".", ",") ?? "",
+    altura: inicial.altura?.toString().replace(".", ",") ?? "",
+  }));
+  const objetivoPersonalizado = !!f.objetivo && !(f.objetivo in OBJETIVO);
+  const [outroObjetivo, setOutroObjetivo] = useState(objetivoPersonalizado);
+  const [erros, setErros] = useState<Record<string, string>>({});
+  const [salvando, setSalvando] = useState(false);
+  const primeiroRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => primeiroRef.current?.focus(), []);
+
+  const set = (campo: string) => (valor: string) => setF((x) => ({ ...x, [campo]: valor }));
+
+  async function salvar(e: FormEvent) {
+    e.preventDefault();
+    const { dados, erros: novosErros } = validarPerfil(f);
+    setErros(novosErros);
+    if (Object.keys(novosErros).length) return;
+
+    setSalvando(true);
+    const { error } = await supabase.from("perfil_usuario").update({ ...dados, onboarding_completo: true }).eq("user_id", userId);
+    setSalvando(false);
+    if (error) {
+      if (error.code === "23505") setErros({ nickname: "Esse nickname já está em uso." });
+      else toast({ title: "Não foi possível salvar o perfil", variant: "destructive" });
+      return;
+    }
+    toast({ title: "Perfil salvo" });
+    onSalvo(dados);
+  }
+
+  return (
+    <form onSubmit={salvar} noValidate className="flex flex-col gap-6">
+      <Bloco icone={Pencil} titulo="Identificação">
+        <Campo id="nome" rotulo="Nome" erro={erros.nome}>
+          <input ref={primeiroRef} id="nome" value={f.nome} maxLength={80} autoComplete="name" onChange={(e) => set("nome")(e.target.value)} className="input-modern" />
+        </Campo>
+        <Campo id="nickname" rotulo="Nickname" erro={erros.nickname} ajuda="Letras minúsculas, números, ponto e _. É como seus amigos te encontram.">
+          <div className="relative">
+            <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">@</span>
+            <input
+              id="nickname"
+              value={f.nickname ?? ""}
+              maxLength={30}
+              autoCapitalize="none"
+              autoComplete="username"
+              spellCheck={false}
+              onChange={(e) => set("nickname")(normalizarNickname(e.target.value))}
+              className="input-modern pl-8"
+            />
+          </div>
+        </Campo>
+      </Bloco>
+
+      <Bloco icone={Activity} titulo="Dados físicos">
+        <div className="grid grid-cols-2 gap-3">
+          <Campo id="idade" rotulo="Idade" erro={erros.idade}>
+            <input id="idade" inputMode="numeric" value={f.idade} onChange={(e) => set("idade")(e.target.value.replace(/\D/g, "").slice(0, 3))} className="input-modern" />
+          </Campo>
+          <Campo id="peso" rotulo="Peso (kg)" erro={erros.peso}>
+            <input id="peso" inputMode="decimal" value={f.peso} placeholder="70,5" onChange={(e) => set("peso")(e.target.value.slice(0, 6))} className="input-modern" />
+          </Campo>
+          <Campo id="altura" rotulo="Altura (m)" erro={erros.altura}>
+            <input id="altura" inputMode="decimal" value={f.altura} placeholder="1,72" onChange={(e) => set("altura")(e.target.value.slice(0, 4))} className="input-modern" />
+          </Campo>
+          <Selecao id="sexo" rotulo="Sexo" valor={f.sexo} opcoes={SEXO} onMudar={set("sexo")} />
+        </div>
+        <Selecao id="atividade" rotulo="Nível de atividade" valor={f.nivel_atividade} opcoes={NIVEL_ATIVIDADE} onMudar={set("nivel_atividade")} />
+      </Bloco>
+
+      <Bloco icone={Brain} titulo="Saúde mental">
+        <Selecao id="estresse" rotulo="Nível de estresse" valor={f.nivel_estresse} opcoes={NIVEL_ESTRESSE} onMudar={set("nivel_estresse")} />
+        <Selecao id="sono" rotulo="Qualidade do sono" valor={f.qualidade_sono} opcoes={QUALIDADE_SONO} onMudar={set("qualidade_sono")} />
+        <Selecao id="humor" rotulo="Humor geral" valor={f.humor_geral} opcoes={HUMOR_GERAL} onMudar={set("humor_geral")} />
+      </Bloco>
+
+      <Bloco icone={Target} titulo="Objetivos">
+        <Campo id="objetivo" rotulo="Objetivo principal" erro={erros.objetivo}>
+          <select
+            id="objetivo"
+            value={outroObjetivo ? "__outro" : f.objetivo ?? ""}
+            onChange={(e) => {
+              const outro = e.target.value === "__outro";
+              setOutroObjetivo(outro);
+              set("objetivo")(outro ? "" : e.target.value);
+            }}
+            className="select-modern"
+          >
+            <option value="">Não informar</option>
+            {Object.entries(OBJETIVO).map(([valor, texto]) => (
+              <option key={valor} value={valor}>{texto}</option>
+            ))}
+            <option value="__outro">Outro…</option>
+          </select>
+        </Campo>
+        {outroObjetivo && (
+          <Campo id="objetivo-texto" rotulo="Descreva seu objetivo">
+            <input id="objetivo-texto" value={f.objetivo ?? ""} maxLength={300} onChange={(e) => set("objetivo")(e.target.value)} className="input-modern" />
+          </Campo>
+        )}
+        <Selecao id="rotina" rotulo="Rotina" valor={f.rotina} opcoes={ROTINA} onMudar={set("rotina")} />
+        <Campo id="tempo-livre" rotulo="Tempo livre por dia">
+          <input id="tempo-livre" value={f.tempo_livre ?? ""} maxLength={100} placeholder="Ex.: 1 a 2 horas" onChange={(e) => set("tempo_livre")(e.target.value)} className="input-modern" />
+        </Campo>
+      </Bloco>
+
+      <div className="flex gap-3">
+        <button type="button" onClick={onCancelar} disabled={salvando} className="btn-secondary flex-1">Cancelar</button>
+        <button type="submit" disabled={salvando} className="btn-primary flex-1">
+          {salvando && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
+          {salvando ? "Salvando…" : "Salvar perfil"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function Bloco({ icone: Icone, titulo, children }: { icone: typeof Activity; titulo: string; children: ReactNode }) {
+  return (
+    <section className="rounded-2xl border border-border bg-card p-5 shadow-card">
+      <div className="mb-4 flex items-center gap-2">
+        <Icone className="h-4 w-4 text-primary" aria-hidden />
+        <h2 className="text-sm font-semibold text-foreground">{titulo}</h2>
+      </div>
+      <div className="flex flex-col gap-3">{children}</div>
+    </section>
+  );
+}
+
+function Linha({ nome, valor }: { nome: string; valor: string | null | undefined }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-xl bg-muted px-4 py-3">
+      <span className="shrink-0 text-sm text-muted-foreground">{nome}</span>
+      <span className={["break-words text-right text-sm font-medium", valor ? "text-foreground" : "text-muted-foreground"].join(" ")}>
+        {valor || "Não informado"}
+      </span>
+    </div>
+  );
+}
+
+function Campo({ id, rotulo, erro, ajuda, children }: { id: string; rotulo: string; erro?: string; ajuda?: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label htmlFor={id} className="label-modern">{rotulo}</label>
+      {children}
+      {ajuda && !erro && <p className="text-xs text-muted-foreground">{ajuda}</p>}
+      {erro && <p role="alert" className="text-xs font-medium text-destructive">{erro}</p>}
+    </div>
+  );
+}
+
+function Selecao({ id, rotulo, valor, opcoes, onMudar }: { id: string; rotulo: string; valor: string | null; opcoes: Record<string, string>; onMudar: (v: string) => void }) {
+  return (
+    <Campo id={id} rotulo={rotulo}>
+      <select id={id} value={valor ?? ""} onChange={(e) => onMudar(e.target.value)} className="select-modern">
+        <option value="">Não informar</option>
+        {Object.entries(opcoes).map(([v, t]) => (
+          <option key={v} value={v}>{t}</option>
+        ))}
+      </select>
+    </Campo>
+  );
+}

@@ -1,12 +1,16 @@
-import { useState, useEffect, KeyboardEvent, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, type KeyboardEvent } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Dumbbell, Loader2, RefreshCw, Plus, ChevronDown, ChevronUp, Ruler, Calculator, History, Save, X, Settings2, Trash2, Search, Star, Clock, Layers, TrendingUp } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid } from "recharts";
 import { supabase } from "@/lib/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/hooks/use-toast";
+import { callEdgeFunction } from "@/lib/supabase/functions";
+import { track } from "@/lib/analytics";
+import { deISO, todayISO } from "@/lib/utils/date";
+import type { Tables, TablesInsert } from "@/lib/supabase/types";
 import { calculateBodyFat, classifyBodyFat } from "@/lib/bodyFat";
-import medidasImg from "@/assets/medidas-personagem.png";
+import medidasImg from "@/assets/medidas-personagem.webp";
 
 interface TreinoPerfil {
   objetivo: string;
@@ -17,8 +21,26 @@ interface TreinoPerfil {
   cardio: string;
   tempo_treino: number;
   limitacoes: string;
-  descanso_pref?: number;
+  descanso_pref?: number | null;
 }
+
+type RespostasTreino = Record<string, string | number | null | undefined>;
+
+interface RegistroCarga {
+  id: string;
+  exercicio_nome: string;
+  peso_kg: number;
+  repeticoes: number;
+  series: number;
+  data: string;
+  observacao: string | null;
+  created_at: string | null;
+}
+
+type Medida = Tables<"medidas_corporais">;
+
+/** Aceita vírgula como separador decimal. */
+const numeroBR = (v: string) => Number(v.replace(",", "."));
 
 interface Treino {
   id: string;
@@ -82,23 +104,19 @@ const FORM_QUESTIONS = [
 ];
 
 const Treinos = () => {
-  const { user, session } = useAuth();
+  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [perfil, setPerfil] = useState<TreinoPerfil | null>(null);
   const [treinos, setTreinos] = useState<Treino[]>([]);
   const [generating, setGenerating] = useState(false);
   const [step, setStep] = useState(0);
-  const [formData, setFormData] = useState<any>({});
+  const [formData, setFormData] = useState<RespostasTreino>({});
   const [savingPerfil, setSavingPerfil] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [tab, setTab] = useState<"plano" | "registro" | "medidas" | "calc">("plano");
   const [refazendo, setRefazendo] = useState(false);
 
-  useEffect(() => {
-    if (user) loadAll();
-  }, [user]);
-
-  const loadAll = async () => {
+  const loadAll = useCallback(async () => {
     setLoading(true);
     const { data: tp } = await supabase.from("treino_perfil").select("*").eq("user_id", user!.id).maybeSingle();
     if (tp) setPerfil(tp as TreinoPerfil);
@@ -117,28 +135,33 @@ const Treinos = () => {
       setTreinos([]);
     }
     setLoading(false);
-  };
+  }, [user]);
+
+  useEffect(() => {
+    if (user) loadAll();
+  }, [user, loadAll]);
 
   const savePerfil = async () => {
     setSavingPerfil(true);
-    const payload: any = {
+    const payload = {
       user_id: user!.id,
-      objetivo: formData.objetivo,
-      dias_semana: formData.dias_semana,
-      local_treino: formData.local_treino,
-      nivel: formData.nivel,
-      grupo_foco: formData.grupo_foco,
-      cardio: formData.cardio,
-      tempo_treino: formData.tempo_treino,
-      limitacoes: formData.limitacoes,
+      objetivo: String(formData.objetivo),
+      dias_semana: Number(formData.dias_semana),
+      local_treino: String(formData.local_treino),
+      nivel: String(formData.nivel),
+      grupo_foco: String(formData.grupo_foco),
+      cardio: String(formData.cardio),
+      tempo_treino: Number(formData.tempo_treino),
+      limitacoes: String(formData.limitacoes ?? "nenhuma"),
+      descanso_pref: formData.descanso_pref ? Number(formData.descanso_pref) : null,
     };
     const { error } = await supabase.from("treino_perfil").upsert(payload, { onConflict: "user_id" });
     setSavingPerfil(false);
     if (error) {
-      toast({ title: "Erro ao salvar", description: error.message, variant: "destructive" });
+      toast({ title: "Não foi possível salvar", description: "Verifique sua conexão e tente de novo.", variant: "destructive" });
       return;
     }
-    setPerfil({ ...payload, descanso_pref: formData.descanso_pref });
+    setPerfil(payload);
     setRefazendo(false);
     toast({ title: "Perfil de treino salvo!" });
     await gerarTreinos();
@@ -147,19 +170,13 @@ const Treinos = () => {
   const gerarTreinos = async () => {
     if (generating) return;
     setGenerating(true);
-    try {
-      const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/gerar-treino`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
-        body: JSON.stringify({ descanso_pref: perfil?.descanso_pref || formData.descanso_pref }),
-      });
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.error || "Erro ao gerar");
-      toast({ title: "Treinos gerados!", description: `${data.count} treinos criados.` });
+    const { data, error } = await callEdgeFunction<{ total: number }>("gerar-treino", { timeoutMs: 90_000 });
+    if (error || !data) {
+      toast({ title: "Não deu para gerar o treino agora", description: error ?? undefined, variant: "destructive" });
+    } else {
+      track("workout_generated", { total: data.total });
+      toast({ title: "Plano pronto", description: `${data.total} ${data.total === 1 ? "treino criado" : "treinos criados"}.` });
       await loadAll();
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Erro desconhecido";
-      toast({ title: "Erro", description: msg, variant: "destructive" });
     }
     setGenerating(false);
   };
@@ -238,7 +255,7 @@ const Treinos = () => {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => { setRefazendo(true); setStep(0); setFormData({}); }}
+            onClick={() => { setRefazendo(true); setStep(0); setFormData(perfil ? { ...perfil, descanso_pref: perfil.descanso_pref ?? undefined } : {}); }}
             className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-sm font-medium text-foreground hover:bg-muted"
             title="Refazer perguntas do perfil de treino"
           >
@@ -270,7 +287,7 @@ const Treinos = () => {
           return (
             <button
               key={t.v}
-              onClick={() => setTab(t.v as any)}
+              onClick={() => setTab(t.v as typeof tab)}
               className={`flex-1 min-w-fit flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-all ${
                 tab === t.v ? "bg-card text-foreground shadow-soft" : "text-muted-foreground hover:text-foreground"
               }`}
@@ -367,7 +384,7 @@ const matchCategory = (name: string, cat: typeof MUSCLE_CATEGORIES[0]) => {
 };
 
 const RegistroTreino = ({ userId, treinos }: { userId: string; treinos: Treino[] }) => {
-  const [registros, setRegistros] = useState<any[]>([]);
+  const [registros, setRegistros] = useState<RegistroCarga[]>([]);
   const [favoritos, setFavoritos] = useState<string[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [pickerTab, setPickerTab] = useState<PickerTab>("recentes");
@@ -378,9 +395,7 @@ const RegistroTreino = ({ userId, treinos }: { userId: string; treinos: Treino[]
   const [saving, setSaving] = useState(false);
   const [detailExercicio, setDetailExercicio] = useState<string | null>(null);
 
-  useEffect(() => { load(); }, []);
-
-  const load = async () => {
+  const load = useCallback(async () => {
     const { data } = await supabase
       .from("treino_registro")
       .select("*")
@@ -393,8 +408,10 @@ const RegistroTreino = ({ userId, treinos }: { userId: string; treinos: Treino[]
       .select("favoritos_exercicios")
       .eq("user_id", userId)
       .maybeSingle();
-    setFavoritos(((pref as any)?.favoritos_exercicios as string[]) || []);
-  };
+    setFavoritos(pref?.favoritos_exercicios ?? []);
+  }, [userId]);
+
+  useEffect(() => { load(); }, [load]);
 
   const toggleFavorito = async (nome: string) => {
     const next = favoritos.includes(nome)
@@ -403,7 +420,7 @@ const RegistroTreino = ({ userId, treinos }: { userId: string; treinos: Treino[]
     setFavoritos(next);
     await supabase
       .from("preferencias_usuario")
-      .update({ favoritos_exercicios: next } as any)
+      .update({ favoritos_exercicios: next })
       .eq("user_id", userId);
   };
 
@@ -463,10 +480,11 @@ const RegistroTreino = ({ userId, treinos }: { userId: string; treinos: Treino[]
     setSaving(true);
     const { error } = await supabase.from("treino_registro").insert({
       user_id: userId,
-      exercicio_nome: form.exercicio_nome,
-      peso_kg: Number(form.peso_kg),
-      repeticoes: Number(form.repeticoes),
-      series: Number(form.series),
+      exercicio_nome: form.exercicio_nome.trim().slice(0, 100),
+      peso_kg: numeroBR(form.peso_kg),
+      repeticoes: Math.round(numeroBR(form.repeticoes)),
+      series: Math.max(1, Math.round(numeroBR(form.series))),
+      data: todayISO(),
     });
     if (error) {
       setSaving(false);
@@ -494,13 +512,13 @@ const RegistroTreino = ({ userId, treinos }: { userId: string; treinos: Treino[]
     if (!detailExercicio) return [];
     return registros
       .filter((r) => r.exercicio_nome === detailExercicio)
-      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+      .sort((a, b) => (a.created_at ?? "").localeCompare(b.created_at ?? ""));
   }, [detailExercicio, registros]);
 
   const chartData = useMemo(() => {
     return exercicioRegistros.map((r, i) => ({
       i: i + 1,
-      data: new Date(r.data).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" }),
+      data: deISO(r.data).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" }),
       peso: Number(r.peso_kg),
       reps: Number(r.repeticoes),
     }));
@@ -810,7 +828,7 @@ const RegistroTreino = ({ userId, treinos }: { userId: string; treinos: Treino[]
                 {[...exercicioRegistros].reverse().map((r) => (
                   <div key={r.id} className="flex items-center justify-between rounded-lg bg-muted px-3 py-2 text-xs">
                     <span className="text-foreground font-medium">{r.peso_kg}kg • {r.repeticoes} reps • {r.series}x</span>
-                    <span className="text-muted-foreground">{new Date(r.data).toLocaleDateString("pt-BR")}</span>
+                    <span className="text-muted-foreground">{deISO(r.data).toLocaleDateString("pt-BR")}</span>
                   </div>
                 ))}
               </div>
@@ -836,7 +854,7 @@ const RegistroTreino = ({ userId, treinos }: { userId: string; treinos: Treino[]
                 <p className="font-medium text-sm text-foreground truncate">{r.exercicio_nome}</p>
                 <p className="text-xs text-muted-foreground">{r.series}× {r.repeticoes} reps • {r.peso_kg}kg</p>
               </div>
-              <span className="text-xs text-muted-foreground shrink-0">{new Date(r.data).toLocaleDateString("pt-BR")}</span>
+              <span className="text-xs text-muted-foreground shrink-0">{deISO(r.data).toLocaleDateString("pt-BR")}</span>
             </button>
           ))}
         </div>
@@ -878,7 +896,9 @@ const ExercicioChip = ({
 
 
 // ============= MEDIDAS =============
-const MEDIDA_FIELDS: { k: string; l: string; short: string }[] = [
+type CampoMedida = "peso" | "cintura" | "peito" | "quadril" | "gluteo" | "perna_dir" | "perna_esq" | "pescoco" | "bracos_dir" | "bracos_esq";
+
+const MEDIDA_FIELDS: { k: CampoMedida; l: string; short: string }[] = [
   { k: "peso", l: "Peso (kg)", short: "Peso" },
   { k: "cintura", l: "Cintura (cm)", short: "Cintura" },
   { k: "peito", l: "Peito (cm)", short: "Peito" },
@@ -893,32 +913,31 @@ const MEDIDA_FIELDS: { k: string; l: string; short: string }[] = [
 
 const MedidasCorporais = ({ userId }: { userId: string }) => {
   const [medidas, setMedidas] = useState<Record<string, string>>({});
-  const [historico, setHistorico] = useState<any[]>([]);
+  const [historico, setHistorico] = useState<Medida[]>([]);
   const [saving, setSaving] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
 
-  useEffect(() => { load(); }, []);
-
-  const load = async () => {
+  const load = useCallback(async () => {
     const { data } = await supabase.from("medidas_corporais").select("*").eq("user_id", userId).order("data", { ascending: false }).limit(20);
     setHistorico(data || []);
-  };
+  }, [userId]);
+
+  useEffect(() => { load(); }, [load]);
 
   const save = async () => {
     if (saving) return;
-    const filled = Object.entries(medidas).filter(([_, v]) => v !== "" && v !== null && v !== undefined && !isNaN(Number(v)));
+    const filled = Object.entries(medidas).filter(([, v]) => v !== "" && v !== null && v !== undefined && !isNaN(numeroBR(v)));
     if (filled.length === 0) {
       toast({ title: "Informe ao menos uma medida", variant: "destructive" });
       return;
     }
     setSaving(true);
-    const payload: any = { user_id: userId };
-    filled.forEach(([k, v]) => { payload[k] = Number(v); });
-    const { error } = await supabase.from("medidas_corporais").insert(payload);
+    const payload: Record<string, string | number> = { user_id: userId, data: todayISO() };
+    filled.forEach(([k, v]) => { payload[k] = numeroBR(v); });
+    const { error } = await supabase.from("medidas_corporais").insert(payload as TablesInsert<"medidas_corporais">);
     setSaving(false);
     if (error) {
-      console.error("medidas insert error", error);
-      toast({ title: "Erro ao salvar", description: error.message, variant: "destructive" });
+      toast({ title: "Não foi possível salvar", description: "Confira se os valores estão em cm e kg.", variant: "destructive" });
       return;
     }
     toast({ title: "Medidas salvas!" });
@@ -945,7 +964,7 @@ const MedidasCorporais = ({ userId }: { userId: string }) => {
   };
 
   // Compute deltas vs previous record
-  const enriched = historico.map((h, idx) => {
+  const enriched: (Medida & { deltas: Record<string, number> })[] = historico.map((h, idx) => {
     const prev = historico[idx + 1];
     const deltas: Record<string, number> = {};
     if (prev) {
@@ -1015,7 +1034,7 @@ const MedidasCorporais = ({ userId }: { userId: string }) => {
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-foreground">
-                        {new Date(h.data).toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" })}
+                        {deISO(h.data).toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" })}
                       </p>
                       <p className="text-xs text-muted-foreground">
                         {valoresPreenchidos.length} medida{valoresPreenchidos.length !== 1 ? "s" : ""}
@@ -1091,7 +1110,7 @@ const CalculadoraGordura = ({ userId }: { userId: string }) => {
       const { data } = await supabase.from("perfil_usuario").select("sexo, altura").eq("user_id", userId).maybeSingle();
       if (data) {
         if (data.sexo === "masculino" || data.sexo === "feminino") setSexo(data.sexo);
-        if (data.altura) setAltura(String(data.altura * 100));
+        if (data.altura) setAltura(String(Math.round(data.altura * 100)));
       }
     };
     load();
@@ -1102,10 +1121,10 @@ const CalculadoraGordura = ({ userId }: { userId: string }) => {
     setCalculando(true);
     const r = calculateBodyFat({
       sexo,
-      alturaCm: Number(altura),
-      pescocoCm: Number(pescoco),
-      cinturaCm: Number(cintura),
-      quadrilCm: sexo === "feminino" ? Number(quadril) : undefined,
+      alturaCm: numeroBR(altura),
+      pescocoCm: numeroBR(pescoco),
+      cinturaCm: numeroBR(cintura),
+      quadrilCm: sexo === "feminino" ? numeroBR(quadril) : undefined,
     });
     if (r === null) {
       setCalculando(false);
@@ -1115,9 +1134,10 @@ const CalculadoraGordura = ({ userId }: { userId: string }) => {
     setResultado(r);
     await supabase.from("medidas_corporais").insert({
       user_id: userId,
-      pescoco: Number(pescoco),
-      cintura: Number(cintura),
-      quadril: sexo === "feminino" ? Number(quadril) : null,
+      data: todayISO(),
+      pescoco: numeroBR(pescoco),
+      cintura: numeroBR(cintura),
+      quadril: sexo === "feminino" ? numeroBR(quadril) : null,
       percent_gordura: r,
     });
     setCalculando(false);
@@ -1146,7 +1166,7 @@ const CalculadoraGordura = ({ userId }: { userId: string }) => {
             {[{ v: "masculino", l: "Masculino" }, { v: "feminino", l: "Feminino" }].map((o) => (
               <button
                 key={o.v}
-                onClick={() => setSexo(o.v as any)}
+                onClick={() => setSexo(o.v as "masculino" | "feminino")}
                 className={`rounded-xl border-2 py-2 text-sm font-medium ${
                   sexo === o.v ? "border-primary bg-primary/10 text-primary" : "border-border bg-card"
                 }`}

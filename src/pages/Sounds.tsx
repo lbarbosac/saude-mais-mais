@@ -7,6 +7,8 @@ import {
 } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
 import { toast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
+import { track } from "@/lib/analytics";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -132,6 +134,7 @@ function formatTime(s: number) {
 // ─── Componente ───────────────────────────────────────────────────────────────
 
 const Sounds = () => {
+  const { user } = useAuth();
   const [sounds, setSounds] = useState<Sound[]>(
     SOUND_DEFS.map((s) => ({ ...s, playing: false, volume: 60, favorite: false }))
   );
@@ -247,14 +250,32 @@ const Sounds = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSeconds]);
 
-  // Cleanup ao desmontar
+  // Cleanup ao desmontar: para os áudios e o temporizador.
   useEffect(() => {
+    const audios = audioRefs.current;
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
-      audioRefs.current.forEach((a) => { a.pause(); a.src = ""; });
-      audioRefs.current.clear();
+      audios.forEach((a) => { a.pause(); a.src = ""; });
+      audios.clear();
     };
   }, []);
+
+  // Favoritos ficam na conta (preferencias_usuario.sons_favoritos).
+  useEffect(() => {
+    if (!user) return;
+    let ativo = true;
+    supabase
+      .from("preferencias_usuario")
+      .select("sons_favoritos")
+      .eq("user_id", user.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!ativo || !data) return;
+        const favoritos = new Set(data.sons_favoritos);
+        setSounds((p) => p.map((s) => ({ ...s, favorite: favoritos.has(s.filename) })));
+      });
+    return () => { ativo = false; };
+  }, [user]);
 
   async function togglePlay(id: string) {
     const sound = sounds.find((s) => s.id === id);
@@ -274,7 +295,10 @@ const Sounds = () => {
 
     if (!sound.playing) {
       audio.volume = sound.volume / 100;
-      try { await audio.play(); }
+      try {
+        await audio.play();
+        track("sound_played", { som: sound.filename });
+      }
       catch {
         toast({ title: "Erro ao tocar o som", description: "Verifique sua conexão.", variant: "destructive" });
         return;
@@ -291,8 +315,18 @@ const Sounds = () => {
     setSounds((p) => p.map((s) => (s.id === id ? { ...s, volume } : s)));
   }
 
-  function toggleFav(id: string) {
-    setSounds((p) => p.map((s) => (s.id === id ? { ...s, favorite: !s.favorite } : s)));
+  async function toggleFav(id: string) {
+    const proximos = sounds.map((s) => (s.id === id ? { ...s, favorite: !s.favorite } : s));
+    setSounds(proximos);
+    if (!user) return;
+    const { error } = await supabase
+      .from("preferencias_usuario")
+      .update({ sons_favoritos: proximos.filter((s) => s.favorite).map((s) => s.filename) })
+      .eq("user_id", user.id);
+    if (error) {
+      setSounds(sounds);
+      toast({ title: "Não foi possível salvar o favorito", variant: "destructive" });
+    }
   }
 
   function handleQuickTimer(seconds: number) {

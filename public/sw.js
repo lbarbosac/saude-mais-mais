@@ -1,69 +1,93 @@
-const CACHE_NAME = "saude-sintonia-v1";
-const STATIC_ASSETS = ["/", "/manifest.json"];
+// Service worker do Saúde++.
+//
+// Cache só do próprio app (HTML, JS, CSS, ícones). Nada de outro domínio é
+// guardado: a versão anterior cacheava toda requisição GET, inclusive as
+// respostas da API do Supabase com dados pessoais, que continuavam no aparelho
+// mesmo depois do logout.
 
-// Install: cache static assets
+const VERSAO = "saude-v2";
+const ESSENCIAIS = ["/", "/manifest.json", "/icons/icon-192.png"];
+
 self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS))
-  );
+  event.waitUntil(caches.open(VERSAO).then((cache) => cache.addAll(ESSENCIAIS)));
   self.skipWaiting();
 });
 
-// Activate: remove old caches
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
-    )
+    caches.keys().then((chaves) => Promise.all(chaves.filter((c) => c !== VERSAO).map((c) => caches.delete(c)))),
   );
   self.clients.claim();
 });
 
-// Fetch: network first, fallback to cache
 self.addEventListener("fetch", (event) => {
-  if (event.request.method !== "GET") return;
-  if (event.request.url.includes("/functions/v1/")) return; // never cache edge functions
+  const { request } = event;
+  if (request.method !== "GET") return;
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return;
 
-  event.respondWith(
-    fetch(event.request)
-      .then((response) => {
-        const clone = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-        return response;
-      })
-      .catch(() => caches.match(event.request))
+  // Navegação: rede primeiro (pega sempre o index.html novo depois de um
+  // deploy); sem rede, cai no app guardado.
+  if (request.mode === "navigate") {
+    event.respondWith(
+      fetch(request)
+        .then((resposta) => {
+          const copia = resposta.clone();
+          caches.open(VERSAO).then((cache) => cache.put("/", copia));
+          return resposta;
+        })
+        .catch(() => caches.match("/")),
+    );
+    return;
+  }
+
+  // Arquivos com hash no nome nunca mudam: cache primeiro.
+  if (url.pathname.startsWith("/assets/") || url.pathname.startsWith("/icons/")) {
+    event.respondWith(
+      caches.match(request).then(
+        (guardado) =>
+          guardado ||
+          fetch(request).then((resposta) => {
+            if (resposta.ok) {
+              const copia = resposta.clone();
+              caches.open(VERSAO).then((cache) => cache.put(request, copia));
+            }
+            return resposta;
+          }),
+      ),
+    );
+  }
+});
+
+self.addEventListener("push", (event) => {
+  let dados = {};
+  try {
+    dados = event.data ? event.data.json() : {};
+  } catch (e) {
+    dados = { body: event.data ? event.data.text() : "" };
+  }
+  event.waitUntil(
+    self.registration.showNotification(dados.title || "Saúde++", {
+      body: dados.body || "Hora de cuidar de você.",
+      icon: "/icons/icon-192.png",
+      badge: "/icons/badge-96.png",
+      tag: dados.tag || "saude",
+      data: { url: dados.url || "/" },
+    }),
   );
 });
 
-// Push notification handler
-self.addEventListener("push", (event) => {
-  const data = event.data?.json() ?? {};
-  const title = data.title || "Saúde em Sintonia";
-  const options = {
-    body: data.body || "Hora de cuidar de você!",
-    icon: "/icons/icon-192.png",
-    badge: "/icons/icon-192.png",
-    tag: data.tag || "saude-sintonia",
-    renotify: true,
-    data: { url: data.url || "/" },
-    actions: [
-      { action: "open", title: "Abrir app" },
-      { action: "dismiss", title: "Agora não" },
-    ],
-  };
-  event.waitUntil(self.registration.showNotification(title, options));
-});
-
-// Notification click
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  if (event.action === "dismiss") return;
-  const url = event.notification.data?.url || "/";
+  const destino = new URL(event.notification.data?.url || "/", self.location.origin).href;
   event.waitUntil(
-    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
-      const existing = clients.find((c) => c.url.includes(self.location.origin));
-      if (existing) return existing.focus();
-      return self.clients.openWindow(url);
-    })
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((janelas) => {
+      const aberta = janelas.find((j) => j.url.startsWith(self.location.origin));
+      if (aberta) {
+        aberta.navigate(destino);
+        return aberta.focus();
+      }
+      return self.clients.openWindow(destino);
+    }),
   );
 });
