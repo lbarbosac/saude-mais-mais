@@ -238,6 +238,8 @@ export default function LoginPage() {
               <div className="relative">
                 <Mail className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
                 <input
+                  id="email-recuperacao"
+                  name="email"
                   type="email"
                   value={form.email}
                   onChange={onFieldChange("email")}
@@ -292,7 +294,7 @@ export default function LoginPage() {
             {isSignup && (
               <div className="relative">
                 <User className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-                <input type="text" value={form.name} onChange={onFieldChange("name")}
+                <input id="nome" name="nome" type="text" value={form.name} onChange={onFieldChange("name")}
                   placeholder="Seu nome completo" autoComplete="name"
                   required maxLength={100} aria-label="Nome completo"
                   className="input-modern-icon" />
@@ -302,7 +304,7 @@ export default function LoginPage() {
             {/* E-mail com sugestões */}
             <div className="relative">
               <Mail className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-              <input type="email" value={form.email} onChange={onFieldChange("email")}
+              <input id="email" name="email" type="email" value={form.email} onChange={onFieldChange("email")}
                 onFocus={() => suggestions.length > 0 && setShowSug(true)}
                 onBlur={() => setTimeout(() => setShowSug(false), 150)}
                 placeholder="seu@email.com" autoComplete="email"
@@ -333,7 +335,7 @@ export default function LoginPage() {
             <div className="flex flex-col gap-2">
               <div className="relative">
                 <Lock className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-                <input type={showPass ? "text" : "password"} value={form.password}
+                <input id="senha" name="senha" type={showPass ? "text" : "password"} value={form.password}
                   onChange={onFieldChange("password")}
                   placeholder={isSignup ? "Mínimo 8 caracteres" : "Sua senha"}
                   autoComplete={isSignup ? "new-password" : "current-password"}

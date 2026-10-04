@@ -5,6 +5,7 @@ import { TelaCarregando } from "@/components/ui/loading-spinner";
 import { ChatAssistant } from "@/components/features/chat/ChatAssistant";
 import { OnboardingFlow } from "@/components/features/onboarding/OnboardingFlow";
 import { CompleteProfileModal } from "@/components/features/onboarding/CompleteProfileModal";
+import { PWAInstallBanner } from "@/components/features/pwa/PWAInstallBanner";
 import { useAuth } from "@/contexts/AuthContext";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useOnboarding } from "@/hooks/useOnboarding";
@@ -64,6 +65,7 @@ export default function AppLayout() {
   const modais = (
     <>
       <ChatAssistant />
+      <PWAInstallBanner />
       <CompleteProfileModal open={convitePerfil} onClose={() => setConvitePerfil(false)} />
     </>
   );

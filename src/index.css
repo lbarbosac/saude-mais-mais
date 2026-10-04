@@ -13,7 +13,8 @@
     --popover: 0 0% 100%;
     --popover-foreground: 220 20% 12%;
 
-    --primary: 213 72% 52%;
+    /* Tons do tema claro escolhidos para texto branco com contraste >= 4,5:1 */
+    --primary: 213 72% 45%;
     --primary-foreground: 0 0% 100%;
 
     --secondary: 152 50% 72%;
@@ -30,7 +31,7 @@
 
     --border: 214 20% 88%;
     --input: 214 20% 88%;
-    --ring: 213 72% 52%;
+    --ring: 213 72% 45%;
 
     --radius: 1rem;
 
@@ -41,10 +42,10 @@
     --wellness-sky: 200 70% 88%;
     --wellness-warm: 35 80% 90%;
 
-    --gradient-calm: linear-gradient(135deg, hsl(213 72% 52%), hsl(200 70% 65%));
+    --gradient-calm: linear-gradient(135deg, hsl(213 72% 45%), hsl(200 80% 36%));
     --gradient-nature: linear-gradient(135deg, hsl(152 50% 60%), hsl(170 48% 55%));
     --gradient-sunset: linear-gradient(135deg, hsl(20 80% 82%), hsl(35 80% 78%));
-    --gradient-hero: linear-gradient(160deg, hsl(213 72% 52%), hsl(152 50% 58%));
+    --gradient-hero: linear-gradient(160deg, hsl(213 72% 45%), hsl(160 60% 36%));
 
     --shadow-soft: 0 2px 16px -2px hsl(213 72% 52% / 0.12);
     --shadow-card: 0 1px 8px -1px hsl(220 20% 20% / 0.08), 0 1px 3px -1px hsl(220 20% 20% / 0.05);
@@ -52,12 +53,12 @@
 
     --sidebar-background: 0 0% 98%;
     --sidebar-foreground: 220 15% 20%;
-    --sidebar-primary: 213 72% 52%;
+    --sidebar-primary: 213 72% 45%;
     --sidebar-primary-foreground: 0 0% 100%;
     --sidebar-accent: 213 30% 93%;
     --sidebar-accent-foreground: 213 72% 30%;
     --sidebar-border: 220 13% 90%;
-    --sidebar-ring: 213 72% 52%;
+    --sidebar-ring: 213 72% 45%;
   }
 
   .dark {

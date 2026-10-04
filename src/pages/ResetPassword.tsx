@@ -94,7 +94,7 @@ export default function ResetPassword() {
             <div className="flex flex-col gap-2">
               <div className="relative">
                 <Lock className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-                <input type={showPass ? "text" : "password"} value={password}
+                <input id="nova-senha" name="nova-senha" type={showPass ? "text" : "password"} value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Nova senha (mínimo 8 caracteres)"
                   autoComplete="new-password" required maxLength={128}
@@ -128,7 +128,7 @@ export default function ResetPassword() {
             {/* Confirmar senha */}
             <div className="relative">
               <Lock className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-              <input type={showPass ? "text" : "password"} value={confirm}
+              <input id="confirmar-senha" name="confirmar-senha" type={showPass ? "text" : "password"} value={confirm}
                 onChange={(e) => setConfirm(e.target.value)}
                 placeholder="Confirme a nova senha"
                 autoComplete="new-password" required maxLength={128}

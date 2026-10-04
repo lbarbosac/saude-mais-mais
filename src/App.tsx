@@ -8,7 +8,6 @@ import ProtectedRoute from "@/components/auth/ProtectedRoute";
 import AppLayout from "@/components/layout/AppLayout";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { TelaCarregando } from "@/components/ui/loading-spinner";
-import { PWAInstallBanner } from "@/components/features/pwa/PWAInstallBanner";
 import { AppConquistas } from "@/components/features/conquistas/AppConquistas";
 import Dashboard from "@/pages/Dashboard";
 import Habits from "@/pages/Habits";
@@ -49,7 +48,6 @@ export default function App() {
           <Toaster />
           <BrowserRouter>
             <AuthProvider>
-              <PWAInstallBanner />
               <AppConquistas />
               <Suspense fallback={<TelaCarregando />}>
                 <Routes>
