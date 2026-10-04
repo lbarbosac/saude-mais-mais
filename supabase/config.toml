@@ -1,4 +1,8 @@
-project_id = "vyslilycqirreujpdjtu"
+project_id = "xoishsddcejcgcbdwdxz"
+
+# As funções validam o token do usuário no próprio código (getClaims), o que
+# funciona tanto com as chaves novas (sb_publishable/sb_secret) quanto com as
+# legadas. enviar-lembretes-diarios é chamada só pelo pg_cron, com CRON_SECRET.
 
 [functions.chat-lucas]
 verify_jwt = false
@@ -6,5 +10,14 @@ verify_jwt = false
 [functions.gerar-habitos]
 verify_jwt = false
 
+[functions.gerar-treino]
+verify_jwt = false
+
 [functions.excluir-dados]
+verify_jwt = false
+
+[functions.salvar-push-subscription]
+verify_jwt = false
+
+[functions.enviar-lembretes-diarios]
 verify_jwt = false
