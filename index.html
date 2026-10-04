@@ -3,35 +3,33 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>Saúde em Sintonia</title>
-    <meta name="description" content="Seu companheiro diário de saúde e bem-estar." />
-    <meta name="author" content="Saúde em Sintonia" />
+    <title>Saúde++</title>
+    <meta name="description" content="Hábitos, bem-estar e o Amigo Lucas, um assistente de IA, em um só lugar." />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#fcfcfc" />
 
-    <!-- PWA -->
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon.ico" sizes="48x48" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.json" />
-    <meta name="theme-color" content="#4a90d9" />
-    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="apple-mobile-web-app-title" content="Saúde+" />
-    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+    <meta name="apple-mobile-web-app-title" content="Saúde++" />
 
-    <!-- Open Graph -->
     <meta property="og:type" content="website" />
-    <meta property="og:title" content="Saúde em Sintonia" />
-    <meta property="og:description" content="Seu companheiro diário de saúde e bem-estar." />
-    <meta property="og:image" content="/icons/icon-512.png" />
-  <script>
-    // Apply theme before React renders to prevent flash
-    (function() {
-      var theme = localStorage.getItem('saude-theme');
-      if (theme === 'escuro' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-        document.documentElement.classList.add('dark');
-      }
-    })();
-  </script>
+    <meta property="og:title" content="Saúde++" />
+    <meta property="og:description" content="Hábitos, bem-estar e o Amigo Lucas, um assistente de IA, em um só lugar." />
+    <meta property="og:image" content="/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content="pt_BR" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <!-- Aplica o tema antes do React, para não piscar a tela clara. -->
+    <script src="/tema-inicial.js"></script>
   </head>
   <body>
+    <noscript>O Saúde++ precisa de JavaScript para funcionar.</noscript>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

@@ -1,27 +1,20 @@
 {
-  "name": "Saúde em Sintonia",
-  "short_name": "Saúde+",
-  "description": "Seu companheiro diário de saúde e bem-estar",
+  "name": "Saúde++",
+  "short_name": "Saúde++",
+  "description": "Hábitos, bem-estar e o Amigo Lucas, um assistente de IA, em um só lugar.",
+  "id": "/",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#fcfcfc",
-  "theme_color": "#4a90d9",
   "orientation": "portrait-primary",
-  "icons": [
-    {
-      "src": "/icons/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "/icons/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
-    }
-  ],
-  "categories": ["health", "lifestyle", "fitness"],
+  "background_color": "#fcfcfc",
+  "theme_color": "#2c7cdd",
   "lang": "pt-BR",
-  "screenshots": []
+  "categories": ["health", "lifestyle", "fitness"],
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
 }
