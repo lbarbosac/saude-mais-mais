@@ -23,12 +23,20 @@ verify_jwt = false
 verify_jwt = false
 
 [auth]
-# Troque/adicione o domínio de produção quando o site estiver no ar.
-site_url = "http://localhost:8080"
-additional_redirect_urls = ["http://localhost:8080/**"]
+# Endereço público do app (links de redefinição de senha apontam para cá).
+# Ao trocar de domínio, atualize aqui e rode `npx supabase config push`.
+site_url = "https://saude-mais-mais.vercel.app"
+additional_redirect_urls = ["https://saude-mais-mais.vercel.app/**", "http://localhost:8080/**"]
 minimum_password_length = 8
 
 [auth.email]
 # Cadastro sem confirmação por e-mail: o SMTP padrão do Supabase envia poucos
 # e-mails por hora. Para ligar, configure um SMTP próprio antes.
 enable_confirmations = false
+# Valores atuais do projeto, fixados para o `config push` não trocá-los pelos padrões da CLI.
+max_frequency = "1m0s"
+otp_length = 8
+
+[auth.mfa.totp]
+enroll_enabled = true
+verify_enabled = true
